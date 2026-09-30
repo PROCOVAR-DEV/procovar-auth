@@ -63,9 +63,47 @@ export const POST = withServiceAuth(async (req: NextRequest, ctx) => {
             meta: { sessionId: session.session.id },
         });
 
+        /*
+         * EL ROL DE LA PERSONA, que es lo que consume cada aplicación.
+         *
+         * `memberships[].roles` NO sirve para esto y aquí era lo único que salía. Ahí va
+         * la columna `role` de better-auth, que guarda su vocabulario —«owner», «member»—
+         * y no el catálogo de Procovar. Quien la leyera buscando «SUPER ADMIN» no lo
+         * encontraba nunca, se quedaba sin rol, y sin rol se cae al de menos permisos.
+         *
+         * `verify-session`, aquí al lado, ya lo hacía bien desde que le pasó a una
+         * supervisora en Rutas. A este endpoint se le quedó sin arreglar, y por eso AFT
+         * metía a TODO el que entraba como `usuario`.
+         *
+         * Y el caso que lo destapó es el peor de todos: un SUPER ADMIN **no pertenece a
+         * ninguna sucursal** —precisamente por eso las ve todas—, así que no tiene ni una
+         * membresía de la que sacar nada. Diez cuentas SUPER ADMIN entraban sin rol y sin
+         * sucursal, o sea sin ver nada, y la pantalla decía «no tienes sucursal asignada»
+         * como si fuera cosa suya. Jose, 30/09/2026.
+         *
+         * El rol de verdad es el de la PERSONA: el mismo en todas sus sucursales.
+         */
+        const persona = await prisma.user.findUnique({
+            where: { id: session.user.id },
+            select: {
+                defaultRole: { select: { name: true } },
+                members: {
+                    select: { memberRoles: { select: { role: { select: { name: true } } } } },
+                },
+            },
+        });
+        const roles = [
+            ...(persona?.defaultRole?.name ? [persona.defaultRole.name] : []),
+            ...(persona?.members ?? []).flatMap((m) => m.memberRoles.map((mr) => mr.role.name)),
+        ];
+
         return NextResponse.json({
             ...session,
             memberships,
+            // Mismos dos campos y mismos nombres que `verify-session`: quien consuma los
+            // dos endpoints no tiene que aprenderse dos formas de lo mismo.
+            role: persona?.defaultRole?.name ?? null,
+            roles,
             sessionToken: codePayload.sessionToken,
             returnTo: codePayload.returnTo ?? null,
         });
