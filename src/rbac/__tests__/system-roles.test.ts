@@ -3,7 +3,7 @@ import { SYSTEM_ROLE_NAMES, ROL_MINIMO, PRECEDENCE, systemRolePermissionKeys, RO
 import { PERMISSION_CATALOG } from '../permissions.catalog'
 
 describe('los roles de Procovar', () => {
-  it('son los siete, escritos como los escribe PEDIDO', () => {
+  it('son los nueve, escritos como los escribe PEDIDO', () => {
     // Si alguien los renombra aquí, PEDIDO deja de reconocer el rol que recibe
     // y todo el mundo pasa a ser "desconocido". Por eso están clavados.
     //
@@ -12,9 +12,53 @@ describe('los roles de Procovar', () => {
     //
     // DESARROLLADOR entró el último y por ENCIMA del Super Admin: es el único que
     // lleva las claves de Avisos (ver SOLO_DESARROLLADOR en system-roles.ts).
+    //
+    // ECONOMICA y ANALISTA entraron el 30/09/2026 y van AL FINAL a propósito: este
+    // array es también `PRECEDENCE`, así que ponerlos en medio le habría bajado el
+    // rol a quien lleve dos. Ver la nota larga en system-roles.ts.
     expect([...SYSTEM_ROLE_NAMES]).toEqual([
       'DESARROLLADOR', 'SUPER ADMIN', 'ADMINISTRADOR', 'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR',
+      'ECONOMICA', 'ANALISTA',
     ])
+  })
+
+  it('los roles de oficio van por DEBAJO de los siete de mando, sin excepción', () => {
+    // Es la razón entera de que vayan al final, y hay que decirla como propiedad y
+    // no con dos ejemplos: la primera versión de esta prueba comparaba ECONOMICA
+    // con ADMINISTRADOR y GESTOR con ANALISTA, y metiendo ECONOMICA en medio del
+    // escalafón seguía pasando. Verde sin probar nada.
+    //
+    // Lo que de verdad hay que sostener: añadirle uno de estos dos a cualquiera
+    // NUNCA le cambia el `member.role` con el que ya trabajaba.
+    const MANDO = ['DESARROLLADOR', 'SUPER ADMIN', 'ADMINISTRADOR', 'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR']
+    const OFICIO = ['ECONOMICA', 'ANALISTA']
+    const gana = (...roles: string[]) => [...PRECEDENCE].find((r) => roles.includes(r))
+
+    for (const oficio of OFICIO) {
+      for (const mando of MANDO) {
+        expect(gana(oficio, mando), `${oficio} no puede ganarle a ${mando}`).toBe(mando)
+      }
+    }
+    // Y a solas, cada uno es él mismo.
+    expect(gana('ECONOMICA')).toBe('ECONOMICA')
+    expect(gana('ANALISTA')).toBe('ANALISTA')
+  })
+
+  it('la económica lleva AFT entero y nada de pedidos', () => {
+    const suyas = systemRolePermissionKeys('ECONOMICA')
+    const aft = PERMISSION_CATALOG.filter((p) => p.service === 'aft').map((p) => p.key)
+
+    expect([...suyas].sort()).toEqual([...aft].sort())
+    // El catálogo incluido: quien inventaría necesita crear el área donde va el activo.
+    expect(suyas).toContain('aft.manage')
+    expect(suyas.some((k) => k.startsWith('pedido.'))).toBe(false)
+    expect(suyas.some((k) => k.startsWith('cliente.'))).toBe(false)
+  })
+
+  it('ANALISTA nace vacío: se puede repartir sin abrirle nada a nadie', () => {
+    // Jose lo pidió el 30/09/2026 y dijo «después te doy los permisos». Inventarle
+    // claves mientras tanto es dar acceso que no autorizó nadie.
+    expect(systemRolePermissionKeys('ANALISTA')).toEqual([])
   })
 
   it('todos tienen descripción: en la pantalla hay que saber qué es cada uno', () => {

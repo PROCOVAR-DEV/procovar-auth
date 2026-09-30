@@ -112,6 +112,22 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
   e('rutas.alias',       'Administración', 'rutas', 'Casar dispositivos con vendedores', 'Match devices to sellers'),
   e('rutas.barrido',     'Administración', 'rutas', 'Lanzar un barrido de Drive', 'Run a Drive scan'),
 
+  // ══ AFT (activos fijos) ══════════════════════════════════════════════════
+  //
+  // El inventario de activos fijos. Nació en Camagüey y por eso su aplicación se
+  // llama «AFT Camagüey», pero las claves son de AFT y no de una sucursal: el
+  // alcance lo pone la sucursal de la persona, no el permiso.
+  //
+  // `aft.manage` es el CATÁLOGO —áreas, ubicaciones y responsables—, que es cosa
+  // distinta de dar de alta un activo. Quien inventaría necesita lo segundo todos
+  // los días y lo primero casi nunca, y hasta ahora AFT los daba juntos: o podías
+  // con todo o no podías con nada.
+  e('aft.read',   'Activos fijos', 'aft', 'Ver el inventario de activos fijos', 'View the fixed-asset inventory'),
+  e('aft.edit',   'Activos fijos', 'aft', 'Dar de alta y editar activos', 'Create and edit assets'),
+  e('aft.delete', 'Activos fijos', 'aft', 'Eliminar activos', 'Delete assets'),
+  e('aft.export', 'Activos fijos', 'aft', 'Exportar el inventario (Excel y PDF)', 'Export the inventory (Excel and PDF)'),
+  e('aft.manage', 'Activos fijos', 'aft', 'Gestionar áreas, ubicaciones y responsables', 'Manage areas, locations and custodians'),
+
   // ══ Entrar en cada aplicación ════════════════════════════════════════════
   //
   // Una llave por aplicación, aparte de lo que se pueda hacer dentro. Es lo que
@@ -121,6 +137,7 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
   e('analitics.entrar', 'Entrar', 'analitics', 'Entrar en Analitics', 'Access Analitics'),
   e('delivery.entrar',  'Entrar', 'delivery', 'Entrar en Delivery', 'Access Delivery'),
   e('ccsa.entrar',      'Entrar', 'ccsa', 'Entrar en el Tablero Parranda', 'Access the Parranda dashboard'),
+  e('aft.entrar',       'Entrar', 'aft', 'Entrar en Activos Fijos', 'Access Fixed Assets'),
 
   // ══ Las pantallas de Accesos ═════════════════════════════════════════════
   e('auth.sucursales',   'Vistas', 'auth', 'Ver Sucursales', 'View Sucursales'),

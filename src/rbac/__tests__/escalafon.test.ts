@@ -23,15 +23,18 @@ const ADMIN = actor('ADMINISTRADOR')
 const SUPER: ResolvedRbac = { org: null, wildcard: true, global: [] }
 
 describe('el escalafón', () => {
-  it('son los SIETE roles, y en orden de más poder a menos', () => {
+  it('son los NUEVE roles, y en orden de más poder a menos', () => {
     expect([...ESCALAFON]).toEqual([...SYSTEM_ROLE_NAMES])
-    expect(ESCALAFON).toHaveLength(7)
+    expect(ESCALAFON).toHaveLength(9)
     expect(rangoDeRol('DESARROLLADOR')).toBeLessThan(rangoDeRol('SUPER ADMIN')!)
     expect(rangoDeRol('SUPER ADMIN')).toBeLessThan(rangoDeRol('ADMINISTRADOR')!)
     expect(rangoDeRol('ADMINISTRADOR')).toBeLessThan(rangoDeRol('GERENTE')!)
     expect(rangoDeRol('GERENTE')).toBeLessThan(rangoDeRol('SUPERVISOR')!)
     expect(rangoDeRol('SUPERVISOR')).toBeLessThan(rangoDeRol('GESTOR')!)
     expect(rangoDeRol('GESTOR')).toBeLessThan(rangoDeRol('OPERADOR')!)
+    // Los dos de oficio van debajo de todo: no mandan sobre nadie.
+    expect(rangoDeRol('OPERADOR')).toBeLessThan(rangoDeRol('ECONOMICA')!)
+    expect(rangoDeRol('ECONOMICA')).toBeLessThan(rangoDeRol('ANALISTA')!)
   })
 
   it('un rol hecho a mano no está en el escalafón', () => {
@@ -51,7 +54,7 @@ describe('un ADMINISTRADOR repartiendo roles', () => {
   // El SÍ: los cuatro de debajo. GESTOR y SUPERVISOR son los que Jose llama
   // "vendedores" —llevan `vendedor.codigo`, que el administrador NO tiene—, así
   // que si esto falla es que la regla de las claves se está comiendo el encargo.
-  it.each(['GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR'])('SÍ puede dar %s', (nombre) => {
+  it.each(['GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR', 'ECONOMICA', 'ANALISTA'])('SÍ puede dar %s', (nombre) => {
     expect(puedeRepartirRol(ADMIN, mios, rol(nombre))).toBe(true)
   })
 
@@ -85,10 +88,15 @@ describe('un ADMINISTRADOR repartiendo roles', () => {
     expect(puedeRepartirRol(ADMIN, mios, { name: 'AYUDANTE', claves: ['vendedor.codigo'] })).toBe(false)
   })
 
-  it('el desplegable sólo le ofrece los cuatro de debajo', () => {
+  it('el desplegable sólo le ofrece los de debajo', () => {
     const catalogo = SYSTEM_ROLE_NAMES.map((n) => ({ id: n, ...rol(n) }))
+    // ECONOMICA y ANALISTA entran aquí desde el 30/09/2026. La primera es de una
+    // sucursal —el AFT de la suya—, así que un administrador la reparte igual que
+    // reparte un operador. La segunda hoy está VACÍA, así que darla no abre nada;
+    // el día que vea varias sucursales hay que subirla de sitio, y está avisado en
+    // system-roles.ts.
     expect(rolesRepartibles(ADMIN, mios, catalogo).map((r) => r.name)).toEqual([
-      'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR',
+      'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR', 'ECONOMICA', 'ANALISTA',
     ])
   })
 })

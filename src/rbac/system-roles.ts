@@ -14,7 +14,27 @@ import { PERMISSION_CATALOG } from './permissions.catalog'
  * deployment must never overwrite what somebody changed on screen (see
  * `syncRbac`, which only ADDS what is missing from a role it just created).
  */
-export const SYSTEM_ROLE_NAMES = ['DESARROLLADOR', 'SUPER ADMIN', 'ADMINISTRADOR', 'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR'] as const
+/**
+ * ECONOMICA y ANALISTA van AL FINAL, y no es cosmético: este array decide DOS
+ * cosas a la vez.
+ *
+ *   `PRECEDENCE`  qué rol gana para el único `member.role` que guarda better-auth
+ *                 cuando alguien lleva varios.
+ *   `ESCALAFON`   quién está por encima de quién, o sea a quién puede repartir cada
+ *                 uno (ver `escalafon.ts`).
+ *
+ * Al final, añadirle uno de estos dos a alguien NUNCA le baja el rol con el que ya
+ * trabaja: una Administradora que además sea ECONOMICA sigue saliendo como
+ * ADMINISTRADOR por todas partes. Metiéndolos en medio, se lo habrían comido — y
+ * eso no falla, simplemente le desaparecen pantallas un martes.
+ *
+ * OJO con ANALISTA cuando se le pongan los permisos. Si acaba viendo las OCHO
+ * sucursales —que es lo que hace hoy el rol `analitico` interno de Analitics, con
+ * su comodín—, estando al final del escalafón lo podría repartir cualquiera de
+ * sucursal. Ese día hay que SUBIRLO, y subirlo toca la precedencia: hay que mirar
+ * las dos cosas, no una.
+ */
+export const SYSTEM_ROLE_NAMES = ['DESARROLLADOR', 'SUPER ADMIN', 'ADMINISTRADOR', 'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR', 'ECONOMICA', 'ANALISTA'] as const
 export type SystemRoleName = (typeof SYSTEM_ROLE_NAMES)[number]
 
 /** The role a new member gets when nobody said otherwise: the most limited one. */
@@ -54,6 +74,10 @@ export const ROLE_DESCRIPTIONS: Record<SystemRoleName, string> = {
     'El vendedor. Ve y trabaja únicamente lo suyo: sus clientes, sus pedidos, sus comisiones. Es el rol que se da por defecto a quien entra nuevo, porque es el que menos abarca.',
   OPERADOR:
     'El de facturación. Lee los pedidos de su sucursal y los marca como completados, que es su trabajo entero. Sin informes y sin ver nada de otras sucursales.',
+  ECONOMICA:
+    'La económica de su sucursal. Lleva el inventario de activos fijos: los da de alta, los mueve, los exporta y mantiene el catálogo de áreas, ubicaciones y responsables. No toca pedidos ni clientes, y no ve nada de otras sucursales.',
+  ANALISTA:
+    'Todavía sin permisos: el rol existe para poder asignarlo, pero hasta que se le diga qué puede ver no abre ninguna pantalla. Quien lo lleve entra y no encuentra nada, y eso es a propósito — un rol vacío no da de más por accidente.',
 }
 
 const allKeys = () => PERMISSION_CATALOG.filter((p) => !p.isDeprecated).map((p) => p.key)
@@ -221,6 +245,30 @@ export function systemRolePermissionKeys(role: string): string[] {
     case 'SUPERVISOR': return [...new Set([...SUPERVISOR_KEYS, VENDE])]
     case 'OPERADOR': return [...new Set(OPERADOR_KEYS)]
     case 'GESTOR': return [...GESTOR_KEYS, VENDE]
+    /*
+     * La económica: AFT entero y nada más.
+     *
+     * «La económica debe de ver el AFT» (Jose, 30/09/2026). Se le da la aplicación
+     * completa —incluido `aft.manage`, el catálogo— porque es quien inventaría: si
+     * pudiera dar de alta un activo pero no el área donde va, se queda a medias y
+     * tiene que buscar a alguien cada vez, que es justo lo que se vino a quitar.
+     *
+     * Y NADA de pedidos ni clientes: no es su trabajo. Si alguna hace además otra
+     * cosa, se le añade el rol que toque encima; los permisos se suman.
+     */
+    case 'ECONOMICA': return PERMISSION_CATALOG.filter((p) => p.service === 'aft' && !p.isDeprecated).map((p) => p.key)
+    /*
+     * ANALISTA nace VACÍO, a propósito.
+     *
+     * Jose lo pidió el 30/09/2026 y dijo «después te doy los permisos». Un rol sin
+     * claves se puede crear y repartir hoy sin abrirle nada a nadie; inventarle yo
+     * unas cuantas «mientras tanto» es dar acceso que no autorizó nadie, y de los
+     * que después no se acuerda ni quien los puso.
+     *
+     * Cuando lleguen: si incluyen ver varias sucursales, hay que mirar también su
+     * sitio en SYSTEM_ROLE_NAMES (ver la nota de arriba).
+     */
+    case 'ANALISTA': return []
     default: return []
   }
 }
