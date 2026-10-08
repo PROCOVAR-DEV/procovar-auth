@@ -23,9 +23,9 @@ const ADMIN = actor('ADMINISTRADOR')
 const SUPER: ResolvedRbac = { org: null, wildcard: true, global: [] }
 
 describe('el escalafón', () => {
-  it('son los NUEVE roles, y en orden de más poder a menos', () => {
+  it('son los DIEZ roles, y en orden de más poder a menos', () => {
     expect([...ESCALAFON]).toEqual([...SYSTEM_ROLE_NAMES])
-    expect(ESCALAFON).toHaveLength(9)
+    expect(ESCALAFON).toHaveLength(10)
     expect(rangoDeRol('DESARROLLADOR')).toBeLessThan(rangoDeRol('SUPER ADMIN')!)
     expect(rangoDeRol('SUPER ADMIN')).toBeLessThan(rangoDeRol('ADMINISTRADOR')!)
     expect(rangoDeRol('ADMINISTRADOR')).toBeLessThan(rangoDeRol('GERENTE')!)
@@ -35,6 +35,8 @@ describe('el escalafón', () => {
     // Los dos de oficio van debajo de todo: no mandan sobre nadie.
     expect(rangoDeRol('OPERADOR')).toBeLessThan(rangoDeRol('ECONOMICA')!)
     expect(rangoDeRol('ECONOMICA')).toBeLessThan(rangoDeRol('ANALISTA')!)
+    // LOGISTICO (08/10/2026) también: de oficio, detrás de todo.
+    expect(rangoDeRol('ANALISTA')).toBeLessThan(rangoDeRol('LOGISTICO')!)
   })
 
   it('un rol hecho a mano no está en el escalafón', () => {
@@ -54,13 +56,21 @@ describe('un ADMINISTRADOR repartiendo roles', () => {
   // El SÍ: los cuatro de debajo. GESTOR y SUPERVISOR son los que Jose llama
   // "vendedores" —llevan `vendedor.codigo`, que el administrador NO tiene—, así
   // que si esto falla es que la regla de las claves se está comiendo el encargo.
-  it.each(['GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR', 'ECONOMICA', 'ANALISTA'])('SÍ puede dar %s', (nombre) => {
+  it.each(['GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR', 'ECONOMICA', 'ANALISTA', 'LOGISTICO'])('SÍ puede dar %s', (nombre) => {
     expect(puedeRepartirRol(ADMIN, mios, rol(nombre))).toBe(true)
   })
 
   // El NO: el suyo y los dos de arriba.
   it.each(['SUPER ADMIN', 'DESARROLLADOR'])('NO puede dar %s', (nombre) => {
     expect(puedeRepartirRol(ADMIN, mios, rol(nombre))).toBe(false)
+  })
+
+  it('un GERENTE ya no puede dar LOGISTICO: no tiene Reparto y no se reparte poder ajeno', () => {
+    // Desde el 08/10/2026 Reparto es del logístico y de quien administra. El Gerente
+    // está por encima en el escalafón, pero la segunda valla (las claves) lo frena.
+    const gerente = actor('GERENTE')
+    expect(puedeRepartirRol(gerente, ['GERENTE'], rol('LOGISTICO'))).toBe(false)
+    expect(puedeRepartirRol(ADMIN, ['ADMINISTRADOR'], rol('LOGISTICO'))).toBe(true)
   })
 
   it('NO puede dar ADMINISTRADOR: clonarse no es repartir', () => {
@@ -96,7 +106,7 @@ describe('un ADMINISTRADOR repartiendo roles', () => {
     // el día que vea varias sucursales hay que subirla de sitio, y está avisado en
     // system-roles.ts.
     expect(rolesRepartibles(ADMIN, mios, catalogo).map((r) => r.name)).toEqual([
-      'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR', 'ECONOMICA', 'ANALISTA',
+      'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR', 'ECONOMICA', 'ANALISTA', 'LOGISTICO',
     ])
   })
 })

@@ -294,9 +294,18 @@ export const auth = betterAuth({
     },
     user: {
         additionalFields: {
+            // EL REGISTRO PÚBLICO NO PUEDE FABRICAR UN SUPER ADMIN — 08/10/2026 (auditoría
+            // de seguridad). Sin `input: false`, `POST /api/auth/sign-up/email` con
+            // `isSystemAdmin: true` en el cuerpo guardaba la cuenta ya como administradora
+            // del sistema (comprobado con better-auth y un adaptador en memoria), y ese
+            // flag da el comodín en todas las aplicaciones. Con `input: false` el valor
+            // del cuerpo se ignora y vale el `defaultValue`. Quien lo marca de verdad lo
+            // hace con Prisma directo (`alta-persona.ts`, el hook `user.create.after` de
+            // arriba y el interruptor del panel de personas), que no pasa por `input`.
             isSystemAdmin: {
                 type: "boolean",
                 defaultValue: false,
+                input: false,
             },
             phone: {
                 type: "string",

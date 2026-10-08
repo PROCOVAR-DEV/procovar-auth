@@ -181,6 +181,77 @@ describe('el token de acceso lleva la sucursal y los roles', () => {
         const par = await emitirPar({ userId: 'u1', sessionId: 's1' })
         expect(decodeJwt(par.token).roles).toEqual(['SUPERVISOR', 'GESTOR'])
     })
+
+    it('un LOGISTICO sale firmado como LOGISTICO, con su sucursal (08/10/2026)', async () => {
+        // Es lo que lee la API del reparto para dejarlo entrar. No hay lista blanca de
+        // roles en el camino: el nombre sale tal cual de la base. Si algún día la hay,
+        // esto es lo que avisa.
+        mockUser.mockResolvedValue(
+            persona({
+                defaultRole: { name: 'LOGISTICO' },
+                members: [
+                    {
+                        organization: { codigo: 'HOL', activa: true },
+                        memberRoles: [{ role: { name: 'LOGISTICO' } }],
+                    },
+                ],
+            }) as never
+        )
+        const c = decodeJwt((await emitirPar({ userId: 'u1', sessionId: 's1' })).token)
+        expect(c.role).toBe('LOGISTICO')
+        expect(c.roles).toEqual(['LOGISTICO'])
+        expect(c.sucursal).toBe('HOL')
+        expect(c.branch_id).toBe('HOL')
+        expect(c.sucursales).toEqual(['HOL'])
+    })
+})
+
+describe('una cuenta isSystemAdmin firma SUPER ADMIN aunque no traiga rol (08/10/2026)', () => {
+    // Hoy hay cuentas isSystemAdmin SIN rol por defecto ni membresía. Reparto decide por
+    // el nombre del rol del token, y la web del reparto ya les añade SUPER ADMIN: por la
+    // APK y el escritorio salían con `role: ''` y `roles: []` y se quedaban fuera.
+    const sinRolNiMembresia = { isSystemAdmin: true, defaultRole: null, members: [] }
+
+    it('sin rol ni membresía: role y roles dicen SUPER ADMIN', async () => {
+        mockUser.mockResolvedValue(persona(sinRolNiMembresia) as never)
+        const c = decodeJwt((await emitirPar({ userId: 'u1', sessionId: 's1' })).token)
+        expect(c.role).toBe('SUPER ADMIN')
+        expect(c.roles).toEqual(['SUPER ADMIN'])
+        expect(c.sucursal).toBe('') // y sigue sin sucursal: ve las ocho
+    })
+
+    it('si ya lo trae no se repite', async () => {
+        mockUser.mockResolvedValue(
+            persona({
+                ...sinRolNiMembresia,
+                defaultRole: { name: 'SUPER ADMIN' },
+                members: [{ organization: { codigo: 'CAM', activa: true }, memberRoles: [{ role: { name: 'SUPER ADMIN' } }] }],
+            }) as never
+        )
+        const id = await resolverIdentidad('u1')
+        expect(id.role).toBe('SUPER ADMIN')
+        expect(id.roles).toEqual(['SUPER ADMIN'])
+    })
+
+    it('con otro rol por defecto, éste sigue siendo el principal y SUPER ADMIN se suma', async () => {
+        mockUser.mockResolvedValue(persona({ ...sinRolNiMembresia, defaultRole: { name: 'LOGISTICO' } }) as never)
+        const id = await resolverIdentidad('u1')
+        expect(id.role).toBe('LOGISTICO')
+        expect(id.roles).toEqual(['LOGISTICO', 'SUPER ADMIN'])
+    })
+
+    it('quien NO es administrador del sistema no recibe SUPER ADMIN nunca', async () => {
+        // Entra con una membresía sin roles: es el caso que pasa por la misma rama.
+        mockUser.mockResolvedValue(
+            persona({
+                defaultRole: null,
+                members: [{ organization: { codigo: 'CAM', activa: true }, memberRoles: [] }],
+            }) as never
+        )
+        const id = await resolverIdentidad('u1')
+        expect(id.role).toBeNull()
+        expect(id.roles).toEqual([])
+    })
 })
 
 describe('qué sucursal se firma', () => {

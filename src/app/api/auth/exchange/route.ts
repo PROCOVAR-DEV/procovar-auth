@@ -16,6 +16,7 @@ import { consumeAuthCode } from '@/lib/auth-code';
 import { getSessionCookieName } from '@/lib/flow-state';
 import { audit } from '@/lib/audit';
 import { logger } from '@/lib/logger';
+import { rolesFirmados, rolPrincipal } from '@/lib/roles-de-la-persona';
 
 const BodySchema = z.object({ code: z.string().min(32) });
 
@@ -86,23 +87,29 @@ export const POST = withServiceAuth(async (req: NextRequest, ctx) => {
         const persona = await prisma.user.findUnique({
             where: { id: session.user.id },
             select: {
+                isSystemAdmin: true,
                 defaultRole: { select: { name: true } },
                 members: {
                     select: { memberRoles: { select: { role: { select: { name: true } } } } },
                 },
             },
         });
-        const roles = [
+        // Una cuenta `isSystemAdmin` puede no traer rol por defecto ni membresía; la web del
+        // reparto ya le añade `SUPER ADMIN` y la APK también (`roles-de-la-persona.ts`).
+        const esAdminDelSistema = persona?.isSystemAdmin === true;
+        const roles = rolesFirmados([
             ...(persona?.defaultRole?.name ? [persona.defaultRole.name] : []),
             ...(persona?.members ?? []).flatMap((m) => m.memberRoles.map((mr) => mr.role.name)),
-        ];
+        ], esAdminDelSistema);
 
         return NextResponse.json({
             ...session,
             memberships,
             // Mismos dos campos y mismos nombres que `verify-session`: quien consuma los
-            // dos endpoints no tiene que aprenderse dos formas de lo mismo.
-            role: persona?.defaultRole?.name ?? null,
+            // dos endpoints no tiene que aprenderse dos formas de lo mismo. La única
+            // diferencia a propósito: aquí una cuenta `isSystemAdmin` sin rol sale como
+            // SUPER ADMIN (ver `roles-de-la-persona.ts`).
+            role: rolPrincipal(persona?.defaultRole?.name, esAdminDelSistema),
             roles,
             sessionToken: codePayload.sessionToken,
             returnTo: codePayload.returnTo ?? null,

@@ -1085,6 +1085,7 @@
     "alcance": "Sucursal",
     "todasLasSucursales": "Todas las sucursales",
     "aplicaciones": "A dónde ir",
+    "sinAplicaciones": "Aún no tienes acceso a ninguna aplicación. Pídeselo a un administrador.",
     "panel": "Panel de Procovar",
     "panelDesc": "Sucursales, personas, permisos y auditoría.",
     "miSucursalDesc": "La gente de tu sucursal y lo que puede hacer cada uno."

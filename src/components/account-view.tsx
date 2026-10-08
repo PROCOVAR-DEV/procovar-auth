@@ -3,6 +3,12 @@ import { Icon } from "@iconify/react";
 import { getTranslations } from "next-intl/server";
 import { prisma } from "@/lib/prisma";
 import type { ProfileRole } from "@/lib/role-resolver";
+import {
+    APLICACIONES_DE_LA_CASA,
+    accesoDe,
+    aplicacionesVisibles,
+    type Destino,
+} from "@/lib/aplicaciones-visibles";
 
 interface AccountViewProps {
     user: { id: string; name: string; email: string; image?: string | null; isSystemAdmin?: boolean };
@@ -19,105 +25,24 @@ interface AccountViewProps {
  *
  * Ahora responde la única pregunta que trae quien llega aquí: **a dónde voy**.
  * Se enseñan las aplicaciones a las que esta persona puede entrar, y su sucursal
- * arriba, porque de eso depende lo que verá cuando llegue.
+ * arriba, porque de eso depende lo que verá cuando llegue. Cuáles son sale de sus
+ * llaves de entrada, en el servidor (ver `@/lib/aplicaciones-visibles`).
  *
  * No hay saludo. Se entra a trabajar, no de visita.
  */
 
-interface Destino {
-    href: string;
-    icono: string;
-    titulo: string;
-    descripcion: string;
-    externo?: boolean;
-}
-
-/**
- * Todo el ecosistema, no sólo las cuatro de siempre.
- *
- * Faltaban cinco de las nueve —Rutas, Entrega, Caja, Traslado y el Portal—, así que
- * quien entraba aquí veía media plataforma y tenía que saberse las direcciones de
- * memoria para llegar al resto. Comprobadas una a una antes de ponerlas: todas responden.
- *
- * n8n se queda fuera a propósito. Es la herramienta de automatizaciones, no una
- * aplicación de negocio: quien la necesita sabe dónde está, y ponerla aquí invita a
- * entrar a quien no tiene por qué.
- */
-const APLICACIONES: Destino[] = [
-    {
-        href: "https://pedidos.procovar.cloud",
-        icono: "lucide:clipboard-list",
-        titulo: "PEDIDO",
-        descripcion: "Pedidos, clientes y vendedores.",
-        externo: true,
-    },
-    {
-        href: "https://analitics.procovar.cloud",
-        icono: "lucide:bar-chart-3",
-        titulo: "Analitics",
-        descripcion: "Informes de ventas, gestores y productos.",
-        externo: true,
-    },
-    {
-        href: "https://rutas.procovar.cloud",
-        icono: "lucide:route",
-        titulo: "Rutas",
-        descripcion: "Recorridos de los vendedores sobre el mapa.",
-        externo: true,
-    },
-    {
-        href: "https://delivery.procovar.cloud",
-        icono: "lucide:truck",
-        titulo: "Delivery",
-        descripcion: "Reparto y planificación de rutas.",
-        externo: true,
-    },
-    {
-        href: "https://entrega.procovar.cloud",
-        icono: "lucide:package-check",
-        titulo: "Entrega",
-        descripcion: "Panel de la aplicación de los repartidores.",
-        externo: true,
-    },
-    {
-        href: "https://caja.procovar.cloud",
-        icono: "lucide:banknote",
-        titulo: "Caja",
-        descripcion: "Cobros y cierres de caja.",
-        externo: true,
-    },
-    {
-        href: "https://traslado.procovar.cloud",
-        icono: "lucide:arrow-left-right",
-        titulo: "Traslado",
-        descripcion: "Movimientos de mercancía entre sucursales.",
-        externo: true,
-    },
-    {
-        href: "https://ccsa.procovar.cloud",
-        icono: "lucide:layout-dashboard",
-        titulo: "Tablero Parranda",
-        descripcion: "El tablero de Parranda / CCSA.",
-        externo: true,
-    },
-    {
-        href: "https://procovar.cloud",
-        icono: "lucide:home",
-        titulo: "Portal",
-        descripcion: "La entrada común a todo lo demás.",
-        externo: true,
-    },
-];
-
-
 export async function AccountView({ user, role }: AccountViewProps) {
     const t = await getTranslations();
 
-    const miembros = await prisma.member.findMany({
-        where: { userId: user.id },
-        select: { organization: { select: { name: true, slug: true } } },
-        orderBy: { createdAt: "asc" },
-    });
+    const [miembros, acceso] = await Promise.all([
+        prisma.member.findMany({
+            where: { userId: user.id },
+            select: { organization: { select: { name: true, slug: true } } },
+            orderBy: { createdAt: "asc" },
+        }),
+        accesoDe(user.id, user.isSystemAdmin ?? false),
+    ]);
+    const aplicaciones = aplicacionesVisibles(APLICACIONES_DE_LA_CASA, acceso);
 
     // El alcance, arriba y siempre: de él depende lo que se verá al llegar a
     // cualquiera de las aplicaciones.
@@ -127,7 +52,8 @@ export async function AccountView({ user, role }: AccountViewProps) {
           ? { codigo: miembros[0].organization.slug.toUpperCase(), nombre: miembros[0].organization.name }
           : null;
 
-    const gestion: Destino[] = [];
+    // Las pantallas de Accesos mismas: no son una aplicación con llave de entrada.
+    const gestion: Omit<Destino, "clientId">[] = [];
     if (user.isSystemAdmin) {
         gestion.push({
             href: "/dashboard/organizations",
@@ -163,8 +89,11 @@ export async function AccountView({ user, role }: AccountViewProps) {
 
             <div>
                 <h2 className="pv-rotulo mb-2">{t("cuenta.aplicaciones")}</h2>
+                {gestion.length === 0 && aplicaciones.length === 0 && (
+                    <p className="mb-3 text-sm text-pv-tinta-suave">{t("cuenta.sinAplicaciones")}</p>
+                )}
                 <div className="grid gap-px bg-pv-trazo-tenue sm:grid-cols-2 lg:grid-cols-3">
-                    {[...gestion, ...APLICACIONES].map((d) => (
+                    {[...gestion, ...aplicaciones].map((d) => (
                         <Link
                             key={d.href}
                             href={d.href}

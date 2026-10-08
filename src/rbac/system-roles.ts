@@ -15,15 +15,15 @@ import { PERMISSION_CATALOG } from './permissions.catalog'
  * `syncRbac`, which only ADDS what is missing from a role it just created).
  */
 /**
- * ECONOMICA y ANALISTA van AL FINAL, y no es cosmético: este array decide DOS
- * cosas a la vez.
+ * ECONOMICA, ANALISTA y LOGISTICO van AL FINAL, y no es cosmético: este array
+ * decide DOS cosas a la vez.
  *
  *   `PRECEDENCE`  qué rol gana para el único `member.role` que guarda better-auth
  *                 cuando alguien lleva varios.
  *   `ESCALAFON`   quién está por encima de quién, o sea a quién puede repartir cada
  *                 uno (ver `escalafon.ts`).
  *
- * Al final, añadirle uno de estos dos a alguien NUNCA le baja el rol con el que ya
+ * Al final, añadirle uno de estos tres a alguien NUNCA le baja el rol con el que ya
  * trabaja: una Administradora que además sea ECONOMICA sigue saliendo como
  * ADMINISTRADOR por todas partes. Metiéndolos en medio, se lo habrían comido — y
  * eso no falla, simplemente le desaparecen pantallas un martes.
@@ -34,7 +34,7 @@ import { PERMISSION_CATALOG } from './permissions.catalog'
  * sucursal. Ese día hay que SUBIRLO, y subirlo toca la precedencia: hay que mirar
  * las dos cosas, no una.
  */
-export const SYSTEM_ROLE_NAMES = ['DESARROLLADOR', 'SUPER ADMIN', 'ADMINISTRADOR', 'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR', 'ECONOMICA', 'ANALISTA'] as const
+export const SYSTEM_ROLE_NAMES = ['DESARROLLADOR', 'SUPER ADMIN', 'ADMINISTRADOR', 'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR', 'ECONOMICA', 'ANALISTA', 'LOGISTICO'] as const
 export type SystemRoleName = (typeof SYSTEM_ROLE_NAMES)[number]
 
 /** The role a new member gets when nobody said otherwise: the most limited one. */
@@ -78,6 +78,8 @@ export const ROLE_DESCRIPTIONS: Record<SystemRoleName, string> = {
     'La económica de su sucursal. Lleva el inventario de activos fijos: los da de alta, los mueve, los exporta y mantiene el catálogo de áreas, ubicaciones y responsables. No toca pedidos ni clientes, y no ve nada de otras sucursales.',
   ANALISTA:
     'Todavía sin permisos: el rol existe para poder asignarlo, pero hasta que se le diga qué puede ver no abre ninguna pantalla. Quien lo lleve entra y no encuentra nada, y eso es a propósito — un rol vacío no da de más por accidente.',
+  LOGISTICO:
+    'El logístico de su sucursal. Arma las rutas y reparte: asigna y cierra los repartos, calcula las rutas y consulta los vehículos, los productos y los informes de reparto. No toca pedidos ni clientes y no ve nada de otras sucursales.',
 }
 
 const allKeys = () => PERMISSION_CATALOG.filter((p) => !p.isDeprecated).map((p) => p.key)
@@ -87,15 +89,19 @@ const GESTOR_KEYS = [
   // Entrar donde ya trabajaba. La llave de entrada es nueva y sin ella un rol que
   // podía leer pedidos se quedaría en la puerta el día que alguna aplicación
   // empiece a mirarla.
+  //
+  // Sin `delivery.entrar` ni `reparto.read` desde el 08/10/2026: a Reparto sólo
+  // entran ADMINISTRADOR, SUPER ADMIN, DESARROLLADOR y LOGISTICO (Jose: «los
+  // logísticos, admins, superadmins y desarrolladores son los únicos que pueden
+  // entrar a Reparto»). OPERADOR y SUPERVISOR heredan de aquí, así que esto los
+  // quita a los tres de una vez.
   'pedido.entrar',
-  'delivery.entrar',
   'pedido.read',
   'pedido.copy',
   'panel.read',
   'cliente.read',
   'vendedor.read',
   'comision.read',
-  'reparto.read',
 ]
 
 /**
@@ -132,8 +138,9 @@ const OPERADOR_KEYS = [
 
 /**
  * El Supervisor saca adelante el trabajo de la sucursal: importa, saca
- * informes, lleva a los vendedores y mueve el reparto. Lo que NO hace es
- * repartir accesos — para eso está el Administrador.
+ * informes y lleva a los vendedores. Lo que NO hace es repartir accesos — para
+ * eso está el Administrador — ni, desde el 08/10/2026, mover el reparto: eso es
+ * del LOGISTICO (ver `REPARTO_KEYS`).
  */
 const SUPERVISOR_KEYS = [
   ...OPERADOR_KEYS,
@@ -156,13 +163,6 @@ const SUPERVISOR_KEYS = [
   'analitics.gestor',
   'analitics.producto',
   'analitics.meta',
-  'reparto.assign',
-  'reparto.complete',
-  'reparto.report',
-  'ruta.read',
-  'ruta.manage',
-  'vehiculo.read',
-  'almacen.read',
   'ccsa.read',
   'ccsa.export',
   'ccsa.territorio',
@@ -192,6 +192,19 @@ const ADMIN_EXCLUIDOS_BASE = [
 const ADMIN_EXCLUIDOS = new Set<string>(ADMIN_EXCLUIDOS_BASE)
 
 /**
+ * TODAS las llaves de Reparto: el servicio `delivery` entero, la de entrar incluida.
+ *
+ * Se saca del catálogo y no de una lista a mano para que una llave nueva de Reparto
+ * quede excluida del Gerente sin acordarse. Comprobado el 08/10/2026 que ninguna otra
+ * aplicación lee estas claves (ni PEDIDO, ni Analitics, ni Rutas, ni Notify, ni el
+ * delivery viejo): sólo Accesos las reparte, y el reparto nuevo decide por el NOMBRE
+ * del rol que viene en el token.
+ */
+export const REPARTO_KEYS: readonly string[] = PERMISSION_CATALOG
+  .filter((p) => p.service === 'delivery')
+  .map((p) => p.key)
+
+/**
  * El Gerente está por encima del Supervisor y por debajo del Administrador: ve
  * TODO lo de su sucursal, no solo lo de un equipo, y lleva el trabajo diario.
  *
@@ -202,6 +215,9 @@ const ADMIN_EXCLUIDOS = new Set<string>(ADMIN_EXCLUIDOS_BASE)
  */
 const GERENTE_EXCLUIDOS = new Set<string>([
   ...ADMIN_EXCLUIDOS_BASE,
+  // Reparto ya no es suyo (08/10/2026). El Gerente se sirve de `allKeys()`, así que
+  // sin esto seguiría recibiendo cada llave de Reparto que se añada al catálogo.
+  ...REPARTO_KEYS,
   // Repartir accesos es del Administrador.
   'member.invite',
   'member.remove',
@@ -269,6 +285,35 @@ export function systemRolePermissionKeys(role: string): string[] {
      * sitio en SYSTEM_ROLE_NAMES (ver la nota de arriba).
      */
     case 'ANALISTA': return []
+    /*
+     * El logístico: Reparto, y nada más.
+     *
+     * «Los logísticos, admins, superadmins y desarrolladores son los únicos que pueden
+     * entrar a Reparto; a los otros quítales esos permisos» (Jose, 08/10/2026), y «el
+     * LOGISTICO lo mandé crear hace años, al igual que el económico».
+     *
+     * Lleva EXACTAMENTE lo de Reparto que tenía el Supervisor antes de quitárselo, más
+     * la llave de entrar que traía el Gestor. Y NO `reparto.sync`: lanzar la
+     * sincronización es de quien administra (Administrador, Gerente y los de arriba la
+     * tenían; el Supervisor nunca), ningún otro sistema la lee, y un logístico arma
+     * rutas, no toca la plomería. Si algún día hace falta, se le da desde la pantalla de
+     * Roles. Por lo mismo, sin `vehiculo.manage` ni `almacen.manage`: el Supervisor
+     * tampoco las tuvo, y gestionar la flota y los productos es de quien administra.
+     *
+     * Como ECONOMICA, no lleva `vendedor.codigo`: no vende. Y nada de pedidos ni
+     * clientes — si además hace otra cosa, se le añade el rol que toque encima.
+     */
+    case 'LOGISTICO': return [
+      'delivery.entrar',
+      'reparto.read',
+      'reparto.assign',
+      'reparto.complete',
+      'reparto.report',
+      'ruta.read',
+      'ruta.manage',
+      'vehiculo.read',
+      'almacen.read',
+    ]
     default: return []
   }
 }

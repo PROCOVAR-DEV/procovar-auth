@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { SYSTEM_ROLE_NAMES, ROL_MINIMO, PRECEDENCE, systemRolePermissionKeys, ROLE_DESCRIPTIONS } from '../system-roles'
+import { SYSTEM_ROLE_NAMES, ROL_MINIMO, PRECEDENCE, REPARTO_KEYS, systemRolePermissionKeys, ROLE_DESCRIPTIONS } from '../system-roles'
 import { PERMISSION_CATALOG } from '../permissions.catalog'
 
 describe('los roles de Procovar', () => {
-  it('son los nueve, escritos como los escribe PEDIDO', () => {
+  it('son los diez, escritos como los escribe PEDIDO', () => {
     // Si alguien los renombra aquí, PEDIDO deja de reconocer el rol que recibe
     // y todo el mundo pasa a ser "desconocido". Por eso están clavados.
     //
@@ -16,9 +16,12 @@ describe('los roles de Procovar', () => {
     // ECONOMICA y ANALISTA entraron el 30/09/2026 y van AL FINAL a propósito: este
     // array es también `PRECEDENCE`, así que ponerlos en medio le habría bajado el
     // rol a quien lleve dos. Ver la nota larga en system-roles.ts.
+    //
+    // LOGISTICO entró el 08/10/2026 y va detrás de ANALISTA por lo mismo: es de oficio,
+    // y añadírselo a alguien no puede bajarle el rol con el que ya trabaja.
     expect([...SYSTEM_ROLE_NAMES]).toEqual([
       'DESARROLLADOR', 'SUPER ADMIN', 'ADMINISTRADOR', 'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR',
-      'ECONOMICA', 'ANALISTA',
+      'ECONOMICA', 'ANALISTA', 'LOGISTICO',
     ])
   })
 
@@ -31,7 +34,7 @@ describe('los roles de Procovar', () => {
     // Lo que de verdad hay que sostener: añadirle uno de estos dos a cualquiera
     // NUNCA le cambia el `member.role` con el que ya trabajaba.
     const MANDO = ['DESARROLLADOR', 'SUPER ADMIN', 'ADMINISTRADOR', 'GERENTE', 'SUPERVISOR', 'GESTOR', 'OPERADOR']
-    const OFICIO = ['ECONOMICA', 'ANALISTA']
+    const OFICIO = ['ECONOMICA', 'ANALISTA', 'LOGISTICO']
     const gana = (...roles: string[]) => [...PRECEDENCE].find((r) => roles.includes(r))
 
     for (const oficio of OFICIO) {
@@ -42,6 +45,7 @@ describe('los roles de Procovar', () => {
     // Y a solas, cada uno es él mismo.
     expect(gana('ECONOMICA')).toBe('ECONOMICA')
     expect(gana('ANALISTA')).toBe('ANALISTA')
+    expect(gana('LOGISTICO')).toBe('LOGISTICO')
   })
 
   it('la económica lleva AFT entero y nada de pedidos', () => {
@@ -59,6 +63,77 @@ describe('los roles de Procovar', () => {
     // Jose lo pidió el 30/09/2026 y dijo «después te doy los permisos». Inventarle
     // claves mientras tanto es dar acceso que no autorizó nadie.
     expect(systemRolePermissionKeys('ANALISTA')).toEqual([])
+  })
+
+  // ── Reparto: sólo ADMINISTRADOR, SUPER ADMIN, DESARROLLADOR y LOGISTICO ──────────
+  //
+  // Jose, 08/10/2026: «los logísticos, admins, superadmins y desarrolladores son los
+  // únicos que pueden entrar a Reparto; a los otros quítales esos permisos».
+
+  /** Las doce del servicio `delivery`, escritas a mano: si alguien añade o quita una
+   *  del catálogo, esta prueba obliga a decidir quién la lleva. */
+  const REPARTO_A_MANO = [
+    'delivery.entrar', 'reparto.read', 'reparto.assign', 'reparto.complete', 'reparto.report',
+    'reparto.sync', 'ruta.read', 'ruta.manage', 'vehiculo.read', 'vehiculo.manage',
+    'almacen.read', 'almacen.manage',
+  ]
+
+  it('REPARTO_KEYS es el servicio delivery entero, y son las doce de siempre', () => {
+    expect([...REPARTO_KEYS].sort()).toEqual([...REPARTO_A_MANO].sort())
+  })
+
+  it('el logístico lleva EXACTAMENTE las nueve de Reparto, y nada más', () => {
+    expect([...systemRolePermissionKeys('LOGISTICO')].sort()).toEqual([
+      'almacen.read', 'delivery.entrar', 'reparto.assign', 'reparto.complete', 'reparto.read',
+      'reparto.report', 'ruta.manage', 'ruta.read', 'vehiculo.read',
+    ])
+  })
+
+  it('el logístico no lleva ni la sincronización ni la gestión de flota y almacén', () => {
+    // Las tres que ni el Supervisor tuvo. Es una decisión (ver system-roles.ts), y si
+    // se revierte tiene que ser a propósito.
+    const suyas = systemRolePermissionKeys('LOGISTICO')
+    for (const k of ['reparto.sync', 'vehiculo.manage', 'almacen.manage']) {
+      expect(suyas, k).not.toContain(k)
+    }
+  })
+
+  it('el logístico no toca pedidos, clientes, vendedores ni accesos', () => {
+    const suyas = systemRolePermissionKeys('LOGISTICO')
+    expect(suyas.every((k) => REPARTO_A_MANO.includes(k))).toBe(true)
+    for (const k of ['pedido.entrar', 'pedido.read', 'cliente.read', 'vendedor.codigo', 'member.read']) {
+      expect(suyas, k).not.toContain(k)
+    }
+  })
+
+  it.each(['GESTOR', 'OPERADOR', 'SUPERVISOR', 'GERENTE', 'ECONOMICA', 'ANALISTA'])(
+    '%s no lleva NI UNA llave de Reparto',
+    (nombre) => {
+      const suyas = new Set(systemRolePermissionKeys(nombre))
+      for (const k of REPARTO_A_MANO) expect(suyas.has(k), `${nombre} no debería tener ${k}`).toBe(false)
+    },
+  )
+
+  it.each(['ADMINISTRADOR', 'SUPER ADMIN', 'DESARROLLADOR'])('%s sigue llevando las doce de Reparto', (nombre) => {
+    const suyas = new Set(systemRolePermissionKeys(nombre))
+    for (const k of REPARTO_A_MANO) expect(suyas.has(k), `${nombre} debería tener ${k}`).toBe(true)
+  })
+
+  it('a Reparto entran exactamente esos cuatro roles y ningún otro', () => {
+    const entran = SYSTEM_ROLE_NAMES.filter((n) => systemRolePermissionKeys(n).includes('delivery.entrar'))
+    expect([...entran].sort()).toEqual(['ADMINISTRADOR', 'DESARROLLADOR', 'LOGISTICO', 'SUPER ADMIN'])
+  })
+
+  it('quitarle Reparto al Supervisor no le quita nada más', () => {
+    // Todo lo que tenía antes de este cambio menos Reparto, para que una poda pase de
+    // largo sin llevarse Analitics, Rutas o Parranda.
+    const sup = systemRolePermissionKeys('SUPERVISOR')
+    for (const k of [
+      'pedido.entrar', 'pedido.read', 'pedido.complete', 'analitics.entrar', 'analitics.read',
+      'ccsa.entrar', 'rutas.entrar', 'rutas.calendario', 'reporte.read', 'vendedor.manage', 'vendedor.codigo',
+    ]) {
+      expect(sup, k).toContain(k)
+    }
   })
 
   it('todos tienen descripción: en la pantalla hay que saber qué es cada uno', () => {

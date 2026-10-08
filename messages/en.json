@@ -1085,6 +1085,7 @@
     "alcance": "Sucursal",
     "todasLasSucursales": "All sucursales",
     "aplicaciones": "Where to go",
+    "sinAplicaciones": "You do not have access to any application yet. Ask an administrator for it.",
     "panel": "Procovar panel",
     "panelDesc": "Sucursales, people, permissions and audit.",
     "miSucursalDesc": "The people in your sucursal and what each of them can do."

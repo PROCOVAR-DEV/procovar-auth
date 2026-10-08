@@ -50,6 +50,7 @@ import { prisma } from '@/lib/prisma';
 import { signJwt } from '@/lib/jwt';
 import { audit } from '@/lib/audit';
 import { logger } from '@/lib/logger';
+import { rolesFirmados, rolPrincipal } from '@/lib/roles-de-la-persona';
 
 /** 15 minutos. El mismo valor que usa `call-center-board`. */
 export const SEGUNDOS_ACCESO = 15 * 60;
@@ -192,7 +193,7 @@ function hashDe(raw: string): string {
 /**
  * Lo que va DENTRO del token: quién es, qué roles tiene y en qué sucursal.
  *
- * El rol es el de la PERSONA, igual que en `/api/auth/verify-session`: el de la
+ * El rol es el de la PERSONA, como en `/api/auth/verify-session` (salvo la cuenta `isSystemAdmin`: ver `roles-de-la-persona.ts`): el de la
  * columna `role` de better-auth guarda su propio vocabulario ("owner", "member")
  * y quien buscara ahí "SUPERVISOR" no lo encontraba nunca.
  *
@@ -236,7 +237,10 @@ export async function resolverIdentidad(userId: string, sucursalPedida?: string 
         ...(persona.defaultRole?.name ? [persona.defaultRole.name] : []),
         ...persona.members.flatMap((m) => m.memberRoles.map((mr) => mr.role.name)),
     ];
-    const rolesUnicos = [...new Set(roles)];
+    // Con `SUPER ADMIN` añadido si es administradora del sistema (ver `rolesFirmados`):
+    // una cuenta así puede no traer ni rol por defecto ni membresía, y sin esto Reparto
+    // la dejaba fuera por la APK mientras la web sí la dejaba entrar.
+    const rolesUnicos = rolesFirmados(roles, persona.isSystemAdmin);
 
     const sucursales = persona.members
         .map((m) => m.organization)
@@ -260,7 +264,7 @@ export async function resolverIdentidad(userId: string, sucursalPedida?: string 
         email: persona.email,
         name: persona.name,
         username: persona.username,
-        role: persona.defaultRole?.name ?? rolesUnicos[0] ?? null,
+        role: rolPrincipal(persona.defaultRole?.name, persona.isSystemAdmin) ?? rolesUnicos[0] ?? null,
         roles: rolesUnicos,
         sucursal,
         sucursales,
