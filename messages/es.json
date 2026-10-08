@@ -1080,6 +1080,13 @@
       "detallePortal": "El portal de Procovar: desde ahí se entra a las demás aplicaciones."
     }
   },
+  "sinPermiso": {
+    "rotulo": "Acceso denegado",
+    "titulo": "No tienes permiso para entrar a {app}",
+    "tituloGenerico": "No tienes permiso para entrar a esa aplicación",
+    "detalle": "Tu cuenta no tiene acceso a esta aplicación. Si la necesitas para trabajar, pídeselo a un administrador.",
+    "volver": "Volver a mis aplicaciones"
+  },
   "cuenta": {
     "rotulo": "Tu cuenta",
     "alcance": "Sucursal",

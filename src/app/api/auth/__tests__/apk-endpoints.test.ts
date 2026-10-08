@@ -22,7 +22,7 @@ const db = vi.hoisted(() => ({
         update: vi.fn(),
         updateMany: vi.fn(),
     },
-    session: { findUnique: vi.fn(), updateMany: vi.fn() },
+    session: { findUnique: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
 }))
 const betterAuth = vi.hoisted(() => ({ signInEmail: vi.fn() }))
 const limitador = vi.hoisted(() => ({ rateLimit: vi.fn() }))
@@ -61,7 +61,8 @@ const PERSONA = {
     username: 'yasmani',
     activo: true,
     isSystemAdmin: false,
-    defaultRole: { name: 'OPERADOR' },
+    // La puerta (`puerta-de-entrada.ts`) pide `delivery.entrar` antes de emitir el par.
+    defaultRole: { name: 'OPERADOR', permissions: [{ permission: { key: 'delivery.entrar' } }] },
     members: [
         {
             organization: { codigo: 'CAM', activa: true },
@@ -185,6 +186,8 @@ describe('POST /api/auth/token', () => {
         expect(r.status).toBe(403)
         expect(r.body.error).toBe('sin_sucursal')
         expect(db.refreshToken.create).not.toHaveBeenCalled()
+        // Y la sesión que abrió este intento no se queda: sólo esa, por su id.
+        expect(db.session.deleteMany).toHaveBeenCalledWith({ where: { id: 's1' } })
     })
 
     it('estira la sesión hasta donde llega el refresh', async () => {

@@ -3,6 +3,15 @@
  *
  * Usuario (o correo) + contraseña → `{ token, refresh_token }`.
  *
+ * ## Hoy es la PUERTA DE REPARTO
+ *
+ * El cliente es siempre `delivery-apk` y exige la llave `delivery.entrar` (lo mismo que
+ * `/api/auth/refresh`): sin ella no se emite el par. Cuando entre el CRM habrá que aceptar
+ * un `client_id` de lista cerrada, cada uno con su llave (`LLAVE_DEL_CLIENTE`), en vez de
+ * esta constante; mientras tanto el CRM NO puede usar esta ruta para entrar. El token que
+ * se firma lleva además `entradas`, las llaves `<app>.entrar` de la persona
+ * (`entradasDe`), que es lo que lee el servidor de Reparto.
+ *
  * Es la puerta de la APK, y la ÚNICA de auth que acepta una contraseña sin
  * navegador. No lleva firma de servicio a propósito: una APK se descompila, así
  * que no puede llevar dentro la clave con la que firman delivery y PEDIDO. Ver
@@ -16,8 +25,16 @@
  *   400 { error: 'invalid_body' }
  *   401 { error: 'invalid_credentials' }        ← siempre el mismo, ver abajo
  *   403 { error: 'sin_sucursal' }
+ *   403 { error: 'sin_permiso', codigo: 'sin_permiso' }   ← sin `delivery.entrar`
  *   429 { error: 'rate_limited' }
  *   503 { error: 'rate_limit_unavailable' }
+ *   503 { error: 'comprobacion_no_disponible' }   ← la base no contestó al mirar la llave
+ *
+ * ## Un fallo de la base NO es «sin permiso»
+ *
+ * La app de Reparto toma el 403 `sin_permiso` por «perdiste el permiso» y se queda en esa
+ * pantalla; un 5xx lo trata bien (conserva los tokens y reintenta). Por eso si no se puede
+ * comprobar la llave sale 503, no 403, y la sesión que abrió este intento se descarta.
  *
  * ## El 401 es siempre el mismo
  *
@@ -46,6 +63,12 @@ import { prisma } from '@/lib/prisma';
 import { rateLimit } from '@/lib/rate-limit';
 import { audit } from '@/lib/audit';
 import { logger } from '@/lib/logger';
+import {
+    ComprobacionNoDisponible,
+    CUERPO_NO_DISPONIBLE,
+    CUERPO_SIN_PERMISO,
+    comprobarEntrada,
+} from '@/lib/puerta-de-entrada';
 import { conCors, preflight } from '@/lib/cors-apk';
 import {
     CLIENTE_POR_DEFECTO,
@@ -71,6 +94,26 @@ const BodySchema = z
 
 /** Un solo cuerpo para todos los fallos de credencial. Ver la cabecera. */
 const credencialesMal = () => NextResponse.json({ error: 'invalid_credentials' }, { status: 401 });
+
+/**
+ * Borra la sesión de better-auth que acaba de abrir este intento de acceso, y SÓLO esa:
+ * se pasa su id, no el de la persona, así que no puede llevarse las demás sesiones de la
+ * cuenta (la web, otros aparatos). Se borra y no se «revoca» porque una revocada seguiría
+ * saliendo en Personas → Sesiones, como «Revocada», que es justo lo que se quiere evitar.
+ *
+ * Si no se puede borrar no se cambia la respuesta: la persona ya está denegada, y una
+ * sesión de más no abre nada (la APK no la recibe nunca).
+ */
+async function descartarSesion(sessionId: string) {
+    try {
+        await prisma.session.deleteMany({ where: { id: sessionId } });
+    } catch (e) {
+        logger.error('[auth/token] no se pudo descartar la sesión de un acceso denegado', {
+            sessionId,
+            error: (e as Error).message,
+        });
+    }
+}
 
 async function manejar(req: NextRequest) {
     let body: unknown;
@@ -158,6 +201,10 @@ async function manejar(req: NextRequest) {
         return credencialesMal();
     }
 
+    // La sesión que acaba de abrir ESTE intento. Si no sale un par de aquí, hay que
+    // quitarla: better-auth la creó al comprobar la contraseña y, sin par, nadie la
+    // tiene ni la va a usar — pero aparecería en la lista de sesiones de la persona.
+    let sesionDeEsteIntento: string | null = null;
     try {
         const sesion = await prisma.session.findUnique({
             where: { token: sessionToken },
@@ -166,6 +213,22 @@ async function manejar(req: NextRequest) {
         if (!sesion) {
             logger.error('[auth/token] entró pero la sesión no está en la base');
             return NextResponse.json({ error: 'internal_error' }, { status: 500 });
+        }
+        sesionDeEsteIntento = sesion.id;
+
+        // La puerta: la contraseña era buena, pero sin `delivery.entrar` no se emite el
+        // par. Es otra cosa que el 401 (credenciales) y que `sin_sucursal` (alcance).
+        if (!(await comprobarEntrada(sesion.userId, CLIENTE_POR_DEFECTO))) {
+            audit({
+                action: 'auth.apk.denied',
+                userId: sesion.userId,
+                clientId: CLIENTE_POR_DEFECTO,
+                ip: aparato.ip,
+                userAgent: aparato.userAgent,
+                meta: { identificador, sessionId: sesion.id },
+            });
+            await descartarSesion(sesion.id);
+            return NextResponse.json(CUERPO_SIN_PERMISO, { status: 403 });
         }
 
         const par = await emitirPar({
@@ -194,6 +257,13 @@ async function manejar(req: NextRequest) {
 
         return NextResponse.json(par);
     } catch (e) {
+        // Sea la denegación que sea (sin sucursal, de baja) o un fallo nuestro: no hubo par.
+        if (sesionDeEsteIntento) await descartarSesion(sesionDeEsteIntento);
+        if (e instanceof ComprobacionNoDisponible) {
+            // La base no contestó al mirar la llave: ni permiso ni denegación, un fallo nuestro.
+            logger.error('[auth/token] no se pudo comprobar la llave de entrada', { error: e.message });
+            return NextResponse.json(CUERPO_NO_DISPONIBLE, { status: 503 });
+        }
         if (e instanceof ErrorDeIdentidad) {
             // Entró bien: la contraseña era buena. Lo que no hay es alcance que
             // firmarle, y un token sin sucursal en la API del reparto significa

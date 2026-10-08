@@ -13,7 +13,7 @@
  */
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getFlowState } from '@/lib/flow-state';
+import { getFlowState, urlSsoNone } from '@/lib/flow-state';
 
 const FLOW_COOKIE = 'qb.flow_state';
 
@@ -26,21 +26,6 @@ export async function GET() {
     const cookieStore = await cookies();
     cookieStore.delete(FLOW_COOKIE);
 
-    if (flowState?.prompt !== 'none' || !flowState?.origin) {
-        return NextResponse.redirect(new URL('/', baseUrl));
-    }
-
-    let back: URL;
-    try {
-        back = new URL(flowState.origin);
-    } catch {
-        return NextResponse.redirect(new URL('/', baseUrl));
-    }
-    back.searchParams.set('sso', 'none');
-    // Hand `returnTo` back too, so the calling app can put the visitor on the
-    // page they originally asked for instead of dumping them on its home page.
-    if (typeof flowState.returnTo === 'string' && flowState.returnTo) {
-        back.searchParams.set('returnTo', flowState.returnTo);
-    }
-    return NextResponse.redirect(back.toString());
+    const back = urlSsoNone(flowState);
+    return NextResponse.redirect(back ?? new URL('/', baseUrl));
 }

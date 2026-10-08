@@ -64,7 +64,8 @@ function persona(extra: Record<string, unknown> = {}) {
         username: 'yasmani',
         activo: true,
         isSystemAdmin: false,
-        defaultRole: { name: 'OPERADOR' },
+        // La puerta (`puerta-de-entrada.ts`) pide `delivery.entrar` también al renovar.
+        defaultRole: { name: 'OPERADOR', permissions: [{ permission: { key: 'delivery.entrar' } }] },
         members: [
             {
                 organization: { codigo: 'CAM', activa: true },

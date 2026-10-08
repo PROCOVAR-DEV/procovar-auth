@@ -36,6 +36,8 @@ const ACCIONES: Record<string, AccionDescrita> = {
   'auth.login': { texto: 'Entró en el sistema', tipo: 'acceso' },
   'auth.logout': { texto: 'Salió del sistema', tipo: 'acceso' },
   'auth.code.exchange': { texto: 'Una aplicación comprobó su identidad', tipo: 'acceso' },
+  'auth.code.denied': { texto: 'No se le dejó entrar a una aplicación (sin permiso)', tipo: 'acceso' },
+  'auth.apk.denied': { texto: 'No se le dejó entrar a la aplicación del reparto (sin permiso)', tipo: 'acceso' },
   'callback.create': { texto: 'Una aplicación pidió identificar a alguien', tipo: 'acceso' },
 
   'organization.create': { texto: 'Creó una sucursal', tipo: 'alta' },

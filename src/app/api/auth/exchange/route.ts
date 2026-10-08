@@ -6,6 +6,14 @@
  *
  * Service-auth REQUIRED. The code is bound to the issuing clientId so a
  * different microservice cannot redeem it. Codes are single-use and TTL 60s.
+ *
+ * La puerta, otra vez (`lib/puerta-de-entrada.ts`): el callback ya la pasó al acuñar el
+ * código, pero su galleta de flujo no está firmada y la llave pudo quitarse en los 60 s
+ * de vida del código. Sin la llave no se devuelve la sesión: sale lo mismo que ante un
+ * código inválido (401), sin contar qué falló.
+ *
+ * La respuesta lleva `entradas`: las llaves `<app>.entrar` de la persona (`entradasDe`),
+ * siempre presente, `[]` si no tiene ninguna. Es lo mismo que firma la APK en su token.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
@@ -17,6 +25,8 @@ import { getSessionCookieName } from '@/lib/flow-state';
 import { audit } from '@/lib/audit';
 import { logger } from '@/lib/logger';
 import { rolesFirmados, rolPrincipal } from '@/lib/roles-de-la-persona';
+import { accesoDe } from '@/lib/aplicaciones-visibles';
+import { CUERPO_NO_DISPONIBLE, ComprobacionNoDisponible, comprobarEntrada, entradasDe } from '@/lib/puerta-de-entrada';
 
 const BodySchema = z.object({ code: z.string().min(32) });
 
@@ -29,6 +39,27 @@ export const POST = withServiceAuth(async (req: NextRequest, ctx) => {
     const expectedClientId = ctx.client.clientId.startsWith('legacy:') ? undefined : ctx.client.clientId;
     const codePayload = await consumeAuthCode(parsed.data.code, expectedClientId);
     if (!codePayload) {
+        return NextResponse.json({ error: 'invalid_or_expired_code' }, { status: 401 });
+    }
+
+    // Se decide con el cliente al que se acuñó el código: igual que `ctx.client` salvo en un
+    // cliente `legacy:`, que puede canjear el de cualquiera. Falla cerrado.
+    // Una caída de la base NO es «sin permiso»: 503 para que la aplicación reintente en vez de
+    // enseñarle a una persona legítima que no puede entrar (revisión del 08/10/2026, S-2).
+    let puede: boolean;
+    try {
+        puede = await comprobarEntrada(codePayload.userId, codePayload.clientId);
+    } catch (e) {
+        if (!(e instanceof ComprobacionNoDisponible)) throw e;
+        return NextResponse.json(CUERPO_NO_DISPONIBLE, { status: 503 });
+    }
+    if (!puede) {
+        audit({
+            action: 'auth.code.denied',
+            clientId: codePayload.clientId,
+            userId: codePayload.userId,
+            meta: { via: 'exchange', canjeadoPor: ctx.client.clientId },
+        });
         return NextResponse.json({ error: 'invalid_or_expired_code' }, { status: 401 });
     }
 
@@ -111,6 +142,8 @@ export const POST = withServiceAuth(async (req: NextRequest, ctx) => {
             // SUPER ADMIN (ver `roles-de-la-persona.ts`).
             role: rolPrincipal(persona?.defaultRole?.name, esAdminDelSistema),
             roles,
+            // Las llaves de entrada que Accesos firma para esta persona; ver arriba.
+            entradas: entradasDe(await accesoDe(session.user.id, esAdminDelSistema)),
             sessionToken: codePayload.sessionToken,
             returnTo: codePayload.returnTo ?? null,
         });

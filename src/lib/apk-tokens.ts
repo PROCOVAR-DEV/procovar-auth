@@ -51,6 +51,8 @@ import { signJwt } from '@/lib/jwt';
 import { audit } from '@/lib/audit';
 import { logger } from '@/lib/logger';
 import { rolesFirmados, rolPrincipal } from '@/lib/roles-de-la-persona';
+import { accesoDe } from '@/lib/aplicaciones-visibles';
+import { comprobarEntrada, entradasDe } from '@/lib/puerta-de-entrada';
 
 /** 15 minutos. El mismo valor que usa `call-center-board`. */
 export const SEGUNDOS_ACCESO = 15 * 60;
@@ -153,6 +155,12 @@ export interface Identidad {
     sucursal: string;
     /** Todas las suyas, por si algún día hay que ofrecer un cambio sin volver a entrar. */
     sucursales: string[];
+    /**
+     * Las llaves `<app>.entrar` que tiene (ver `entradasDe`). SIEMPRE presente: `[]` es «no
+     * entra a nada», y Reparto lo trata distinto de «ausente». Se re-firma en cada
+     * renovación, así que un cambio de rol se nota en ≤ 15 minutos.
+     */
+    entradas: string[];
 }
 
 export type MotivoDeFallo =
@@ -175,7 +183,13 @@ export type MotivoDeFallo =
     /** Lo cerramos nosotros: logout, revocación desde el panel, o baja de la persona. */
     | 'revoked'
     /** Entró bien pero no se le puede firmar un alcance. Ver `resolverIdentidad`. */
-    | 'sin_sucursal';
+    | 'sin_sucursal'
+    /**
+     * Ya no tiene la llave de entrada (`delivery.entrar`): se le quitó después de
+     * entrar. Sólo sale de `renovar`; ver `sinLlaveDeEntrada`. Si la base no contesta al
+     * comprobarla NO sale esto: `renovar` lanza `ComprobacionNoDisponible` (un 503).
+     */
+    | 'sin_permiso';
 
 export type Renovacion = { ok: true; par: Par } | { ok: false; motivo: MotivoDeFallo };
 
@@ -259,6 +273,10 @@ export async function resolverIdentidad(userId: string, sucursalPedida?: string 
         }
     }
 
+    // Las llaves de entrada que se firman. `accesoDe` ya cuenta el rol por defecto y TODAS
+    // las membresías; una cuenta `isSystemAdmin` las trae todas sin consultar nada.
+    const entradas = entradasDe(await accesoDe(persona.id, persona.isSystemAdmin));
+
     return {
         sub: persona.id,
         email: persona.email,
@@ -268,6 +286,7 @@ export async function resolverIdentidad(userId: string, sucursalPedida?: string 
         roles: rolesUnicos,
         sucursal,
         sucursales,
+        entradas,
     };
 }
 
@@ -290,6 +309,8 @@ export async function firmarAcceso(identidad: Identidad, sessionId: string | nul
             sucursal: identidad.sucursal,
             branch_id: identidad.sucursal,
             sucursales: identidad.sucursales,
+            // Siempre, aunque sea `[]`: ver `Identidad.entradas`. Siete cadenas como mucho.
+            entradas: identidad.entradas,
             ...(sessionId ? { sid: sessionId } : {}),
             // Sin esto, dos accesos firmados dentro del mismo segundo con los
             // mismos datos salen IDÉNTICOS byte a byte: mismo `iat`, mismo `exp`
@@ -440,6 +461,10 @@ export async function renovar(raw: string, aparato?: DatosDelAparato): Promise<R
     }
     if (fila.revokedAt) return { ok: false, motivo: 'revoked' };
 
+    // La puerta, ANTES de gastar el refresh: sin la llave no se renueva y no se toca
+    // nada, así que si se la devuelven mañana el mismo refresh vuelve a valer.
+    if (await sinLlaveDeEntrada(fila, ahora, aparato)) return { ok: false, motivo: 'sin_permiso' };
+
     const gastado = await prisma.refreshToken.updateMany({
         where: { id: fila.id, usedAt: null, revokedAt: null },
         data: { usedAt: ahora },
@@ -505,6 +530,9 @@ async function conLaGracia(
     aparato: DatosDelAparato | undefined,
     motivo: string
 ): Promise<Renovacion> {
+    // Igual que en el camino normal: sin la llave no se emite, y no se gasta la gracia.
+    if (await sinLlaveDeEntrada(fila, ahora, aparato)) return { ok: false, motivo: 'sin_permiso' };
+
     const concedida = await prisma.refreshToken.updateMany({
         where: { id: fila.id, graceUsedAt: null },
         data: { graceUsedAt: ahora },
@@ -528,6 +556,40 @@ async function conLaGracia(
     return emitirDesde(fila, ahora, aparato, motivo);
 }
 
+/**
+ * ¿Ha perdido la persona la llave de entrada de la aplicación con la que nació este
+ * refresh? Misma comprobación que la puerta del login (`delivery-apk` → `delivery.entrar`).
+ *
+ * Renovar es seguir entrando: sin esto, quien hoy no tiene permiso seguiría renovando
+ * 30 días con el refresh de cuando sí lo tenía.
+ *
+ * Si la base no contesta, `comprobarEntrada` LANZA (`ComprobacionNoDisponible`) y se deja
+ * subir: `/refresh` lo contesta con un 503 y el refresh no se gasta. Un «sin permiso»
+ * falso aquí dejaría a la APK en la pantalla de «perdiste el permiso» hasta recargar.
+ *
+ * Se decide con `fila.clientId` (con quién nació el refresh); `null` = una fila anterior a
+ * la columna, que es `CLIENTE_POR_DEFECTO`. Un refresh ya caducado NO se mira: sale como
+ * `expired`, que es lo que es.
+ */
+async function sinLlaveDeEntrada(
+    fila: { id: string; userId: string; clientId: string | null; expiresAt: Date },
+    ahora: Date,
+    aparato: DatosDelAparato | undefined
+): Promise<boolean> {
+    if (fila.expiresAt.getTime() <= ahora.getTime()) return false;
+    const clientId = fila.clientId ?? CLIENTE_POR_DEFECTO;
+    if (await comprobarEntrada(fila.userId, clientId)) return false;
+    audit({
+        action: 'auth.apk.denied',
+        userId: fila.userId,
+        clientId,
+        ip: aparato?.ip ?? null,
+        userAgent: aparato?.userAgent ?? null,
+        meta: { via: 'refresh', refreshTokenId: fila.id },
+    });
+    return true;
+}
+
 /** ¿Se gastó hace tan poco que no se puede distinguir de un reintento de red? */
 function dentroDeLaGracia(usado: Date, ahora: Date): boolean {
     const pasado = ahora.getTime() - usado.getTime();
@@ -542,7 +604,7 @@ type FilaDeRefresh = {
     userId: string;
     sessionId: string | null;
     familyId: string;
-    /** Con quién nació la fila. NO se compara para decidir: sólo se anota. */
+    /** Con quién nació la fila. De él depende la llave que se pide al renovar (`sinLlaveDeEntrada`). */
     clientId: string | null;
     expiresAt: Date;
 };

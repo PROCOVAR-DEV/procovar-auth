@@ -7,6 +7,8 @@ import { redirect } from 'next/navigation';
 import { getFlowState, decodeFlowOptions, buildExternalRedirectUrl, getSessionCookieName } from '@/lib/flow-state';
 import { validateCallbackPayload, CallbackValidationError } from '@/lib/callback-validator';
 import { resolveProfileRole } from '@/lib/role-resolver';
+import { audit } from '@/lib/audit';
+import { puedeEntrar, urlSinPermiso } from '@/lib/puerta-de-entrada';
 
 export default async function SignInPage({
   searchParams,
@@ -56,6 +58,17 @@ export default async function SignInPage({
         if (originAllowed) {
           // External URL: include exchange code
           if (options.origin.startsWith('http')) {
+            // La puerta: sin la llave `<app>.entrar` no se acuña el código. Va fuera de
+            // cualquier try/catch porque `redirect` lanza.
+            if (!(await puedeEntrar(user.id, options.clientId))) {
+              audit({
+                action: 'auth.code.denied',
+                clientId: options.clientId ?? null,
+                userId: user.id,
+                meta: { callbackUrl: options.origin, via: 'op' },
+              });
+              redirect(urlSinPermiso(options.clientId ?? ''));
+            }
             const cookieStore = await cookies();
             const sessionCookieName = getSessionCookieName();
             const sessionToken = cookieStore.get(sessionCookieName)?.value;

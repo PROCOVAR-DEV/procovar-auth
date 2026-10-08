@@ -60,6 +60,25 @@ export async function getFlowState(): Promise<FlowOptions | null> {
 }
 
 /**
+ * Where a silent probe (`prompt=none`) goes back when it is NOT given a code: the calling
+ * app's `origin` with `?sso=none` (and `returnTo`, so it can put the visitor back on the
+ * page they asked for). `null` if the flow is not a silent probe or `origin` is not a URL.
+ * Shared by `/api/flow/none` (no session) and `/api/auth/callback` (session, but no key).
+ */
+export function urlSsoNone(flow: FlowOptions | null): string | null {
+  if (flow?.prompt !== 'none' || !flow.origin) return null;
+  let back: URL;
+  try {
+    back = new URL(flow.origin);
+  } catch {
+    return null;
+  }
+  back.searchParams.set('sso', 'none');
+  if (typeof flow.returnTo === 'string' && flow.returnTo) back.searchParams.set('returnTo', flow.returnTo);
+  return back.toString();
+}
+
+/**
  * Clear the flow state cookie
  */
 export async function clearFlowState(): Promise<void> {

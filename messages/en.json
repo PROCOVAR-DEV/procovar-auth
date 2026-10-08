@@ -1080,6 +1080,13 @@
       "detallePortal": "The Procovar portal: the other applications are reached from there."
     }
   },
+  "sinPermiso": {
+    "rotulo": "Access denied",
+    "titulo": "You do not have permission to enter {app}",
+    "tituloGenerico": "You do not have permission to enter that application",
+    "detalle": "Your account has no access to this application. If you need it for your work, ask an administrator.",
+    "volver": "Back to my applications"
+  },
   "cuenta": {
     "rotulo": "Your account",
     "alcance": "Sucursal",

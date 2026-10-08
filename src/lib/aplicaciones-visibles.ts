@@ -164,6 +164,8 @@ export const ENTRADA_COMUN = 'portal'
 export interface Acceso {
     todo: boolean
     llaves: ReadonlySet<string>
+    /** La cuenta está de baja (`activo=false`). Sólo lo rellena `accesoDe` al leer la base. */
+    baja?: boolean
 }
 
 /**
@@ -201,12 +203,17 @@ export function aplicacionesVisibles<T extends { clientId: string }>(apps: reado
  * Las filas de `role_permission` que apuntan a un permiso que ya no existe se saltan,
  * igual que allí.
  */
-export async function accesoDe(userId: string, isSystemAdmin: boolean): Promise<Acceso> {
+export async function accesoDe(userId: string, isSystemAdmin = false): Promise<Acceso> {
     if (isSystemAdmin) return { todo: true, llaves: new Set() }
 
     const persona = await prisma.user.findUnique({
         where: { id: userId },
         select: {
+            // Se vuelve a mirar aquí aunque el llamador lo traiga: la puerta de entrada
+            // (`puerta-de-entrada.ts`) sólo tiene el id de la persona.
+            isSystemAdmin: true,
+            // Para que la puerta deje pasar a una cuenta de baja y la cierre `resolverIdentidad`.
+            activo: true,
             defaultRole: { select: { permissions: { select: { permission: { select: { key: true } } } } } },
             members: {
                 select: {
@@ -225,5 +232,5 @@ export async function accesoDe(userId: string, isSystemAdmin: boolean): Promise<
     sumar(persona?.defaultRole?.permissions)
     for (const m of persona?.members ?? []) for (const mr of m.memberRoles) sumar(mr.role.permissions)
 
-    return { todo: false, llaves }
+    return { todo: persona?.isSystemAdmin === true, llaves, baja: persona?.activo === false }
 }
