@@ -1088,6 +1088,7 @@
     "volver": "Back to my applications"
   },
   "cuenta": {
+    "sinAcceso": "No access: ask an administrator",
     "rotulo": "Your account",
     "alcance": "Sucursal",
     "todasLasSucursales": "All sucursales",
@@ -1098,6 +1099,7 @@
     "miSucursalDesc": "The people in your sucursal and what each of them can do."
   },
   "rail": {
+    "inicio": "Home",
     "sucursales": "Sucursales",
     "miSucursal": "My sucursal",
     "personas": "People",

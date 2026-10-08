@@ -6,7 +6,7 @@ import type { ProfileRole } from "@/lib/role-resolver";
 import {
     APLICACIONES_DE_LA_CASA,
     accesoDe,
-    aplicacionesVisibles,
+    aplicacionesConAcceso,
     type Destino,
 } from "@/lib/aplicaciones-visibles";
 
@@ -42,7 +42,7 @@ export async function AccountView({ user, role }: AccountViewProps) {
         }),
         accesoDe(user.id, user.isSystemAdmin ?? false),
     ]);
-    const aplicaciones = aplicacionesVisibles(APLICACIONES_DE_LA_CASA, acceso);
+    const aplicaciones = aplicacionesConAcceso(APLICACIONES_DE_LA_CASA, acceso);
 
     // El alcance, arriba y siempre: de él depende lo que se verá al llegar a
     // cualquiera de las aplicaciones.
@@ -89,11 +89,11 @@ export async function AccountView({ user, role }: AccountViewProps) {
 
             <div>
                 <h2 className="pv-rotulo mb-2">{t("cuenta.aplicaciones")}</h2>
-                {gestion.length === 0 && aplicaciones.length === 0 && (
+                {gestion.length === 0 && !aplicaciones.some((a) => a.permitida) && (
                     <p className="mb-3 text-sm text-pv-tinta-suave">{t("cuenta.sinAplicaciones")}</p>
                 )}
                 <div className="grid gap-px bg-pv-trazo-tenue sm:grid-cols-2 lg:grid-cols-3">
-                    {[...gestion, ...aplicaciones].map((d) => (
+                    {[...gestion.map((g) => ({ ...g, permitida: true })), ...aplicaciones].map((d) => d.permitida ? (
                         <Link
                             key={d.href}
                             href={d.href}
@@ -122,6 +122,25 @@ export async function AccountView({ user, role }: AccountViewProps) {
                                 </span>
                             </span>
                         </Link>
+                    ) : (
+                        // Sin permiso: se ENSEÑA apagada, no se esconde (Jose, 08/10/2026). No es un
+                        // enlace —nada que pulsar— y dice por qué, también a quien usa lector de pantalla.
+                        <div
+                            key={d.href}
+                            aria-disabled="true"
+                            title={t("cuenta.sinAcceso")}
+                            className="flex cursor-not-allowed items-start gap-3 bg-pv-blanco p-4 opacity-45"
+                        >
+                            <Icon icon={d.icono} className="mt-0.5 size-5 shrink-0 text-pv-tinta-suave" aria-hidden />
+                            <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-1.5">
+                                    <span className="font-semibold">{d.titulo}</span>
+                                    <Icon icon="lucide:lock" className="size-3.5 shrink-0 text-pv-tinta-suave" aria-hidden />
+                                    <span className="sr-only">{t("cuenta.sinAcceso")}</span>
+                                </span>
+                                <span className="mt-0.5 block text-sm text-pv-tinta-suave">{d.descripcion}</span>
+                            </span>
+                        </div>
                     ))}
                 </div>
             </div>

@@ -7,6 +7,7 @@ import {
     APLICACIONES_DE_LA_CASA,
     LLAVE_DE_ENTRADA,
     accesoDe,
+    aplicacionesConAcceso,
     aplicacionesVisibles,
     type Acceso,
 } from '../aplicaciones-visibles'
@@ -140,3 +141,43 @@ describe('accesoDe (las llaves reales de la persona)', () => {
         expect(ids(await accesoDe('fantasma', false))).toEqual([])
     })
 })
+
+// «INICIO» ENSEÑA TODAS LAS APLICACIONES Y APAGA LAS QUE NO TIENES (Jose, 08/10/2026): antes se
+// escondían, y quien llegaba no veía que existían ni por qué no podía abrirlas.
+describe('aplicacionesConAcceso: todas, con `permitida`', () => {
+    const todas = APLICACIONES_DE_LA_CASA.map((a) => a.clientId)
+    const permitidas = (acceso: Acceso) =>
+        aplicacionesConAcceso(APLICACIONES_DE_LA_CASA, acceso).filter((a) => a.permitida).map((a) => a.clientId)
+
+    it('NO esconde ninguna: devuelve todas, en el mismo orden', () => {
+        for (const acceso of [conLlaves(), conLlaves('pedido.entrar'), delRol('GERENTE'), { todo: true, llaves: new Set<string>() }]) {
+            expect(aplicacionesConAcceso(APLICACIONES_DE_LA_CASA, acceso).map((a) => a.clientId)).toEqual(todas)
+        }
+    })
+
+    it('las permitidas son EXACTAMENTE las que `aplicacionesVisibles` enseñaba (la regla no cambia)', () => {
+        for (const acceso of [conLlaves(), conLlaves('pedido.entrar'), conLlaves('analitics.entrar', 'aft.entrar'), delRol('SUPERVISOR'), delRol('GERENTE'), delRol('LOGISTICO')]) {
+            expect(permitidas(acceso)).toEqual(ids(acceso))
+        }
+    })
+
+    it('un SUPERVISOR de hoy (sin Reparto): ve Delivery apagado y lo suyo encendido', () => {
+        const lista = aplicacionesConAcceso(APLICACIONES_DE_LA_CASA, delRol('SUPERVISOR'))
+        const de = (id: string) => lista.find((a) => a.clientId === id)?.permitida
+        expect(de('pedido')).toBe(true)
+        expect(de('analitics')).toBe(true)
+        expect(de('delivery')).toBe(false)
+        expect(de('entrega')).toBe(false)
+        expect(de('portal')).toBe(true)
+    })
+
+    it('el administrador de sistema las tiene todas encendidas', () => {
+        expect(aplicacionesConAcceso(APLICACIONES_DE_LA_CASA, { todo: true, llaves: new Set() }).every((a) => a.permitida)).toBe(true)
+    })
+
+    it('quien no tiene ninguna llave las ve TODAS apagadas (ni el Portal)', () => {
+        expect(permitidas(conLlaves())).toEqual([])
+        expect(aplicacionesConAcceso(APLICACIONES_DE_LA_CASA, conLlaves()).length).toBe(todas.length)
+    })
+})
+

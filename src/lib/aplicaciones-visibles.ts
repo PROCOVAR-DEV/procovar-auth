@@ -180,17 +180,33 @@ export interface Acceso {
  *    vacío (ANALISTA, o alguien sin rol), y la pantalla le dice que pida acceso.
  */
 export function aplicacionesVisibles<T extends { clientId: string }>(apps: readonly T[], acceso: Acceso): T[] {
-    if (acceso.todo) return [...apps]
+    const con = aplicacionesConAcceso(apps, acceso)
+    return apps.filter((_, i) => con[i].permitida)
+}
+
+/**
+ * TODAS las aplicaciones, cada una con `permitida`: si esta persona puede abrirla.
+ *
+ * Es lo que pinta «Inicio» (Jose, 08/10/2026): no se ESCONDEN las que no tiene —así quien
+ * llega ve que existen y por qué no puede abrirlas—, se APAGAN. La regla de cuáles son
+ * `permitida` es exactamente la de `aplicacionesVisibles` de siempre (las llaves de entrada,
+ * el Portal para quien tenga alguna, el administrador de sistema todas).
+ */
+export function aplicacionesConAcceso<T extends { clientId: string }>(
+    apps: readonly T[],
+    acceso: Acceso,
+): Array<T & { permitida: boolean }> {
+    if (acceso.todo) return apps.map((a) => ({ ...a, permitida: true }))
     const llaveDe = (a: T) => LLAVE_DE_ENTRADA[a.clientId]
     const tieneAlguna = apps.some((a) => {
         const k = llaveDe(a)
         return typeof k === 'string' && acceso.llaves.has(k)
     })
-    if (!tieneAlguna) return []
-    return apps.filter((a) => {
+    return apps.map((a) => {
         const k = llaveDe(a)
-        if (k === null) return a.clientId === ENTRADA_COMUN
-        return typeof k === 'string' && acceso.llaves.has(k)
+        const permitida =
+            tieneAlguna && (k === null ? a.clientId === ENTRADA_COMUN : typeof k === 'string' && acceso.llaves.has(k))
+        return { ...a, permitida }
     })
 }
 

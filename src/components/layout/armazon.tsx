@@ -99,6 +99,9 @@ export function Armazon({ persona, children }: { persona: Persona; children: Rea
     // administrador entraba, no veía ningún apartado y se quedaba sin saber a
     // dónde ir.
     const APARTADOS: Apartado[] = [
+        // INICIO para TODO el mundo (Jose, 08/10/2026): la pantalla «A dónde ir», con todas las aplicaciones
+        // y las que no tienes, apagadas. Antes sólo llegaba quien tecleaba la raíz o pulsaba el logotipo.
+        { href: "/", icono: "lucide:layout-grid", texto: t("rail.inicio") },
         { href: "/dashboard/organizations", icono: "lucide:building-2", texto: t("rail.sucursales"), soloGlobal: true },
         { href: "/profile/org", icono: "lucide:building-2", texto: t("rail.miSucursal"), soloSucursal: true },
         { href: "/dashboard/users", icono: "lucide:users", texto: t("rail.personas"), soloGlobal: true },
@@ -134,7 +137,7 @@ export function Armazon({ persona, children }: { persona: Persona; children: Rea
                         // startsWith pelado, /profile se marcaría como activo
                         // también estando en /profile/me y saldrían dos
                         // apartados encendidos a la vez.
-                        data-activo={ruta === a.href || ruta.startsWith(`${a.href}/`)}
+                        data-activo={a.href === "/" ? ruta === "/" : ruta === a.href || ruta.startsWith(`${a.href}/`)}
                     >
                         <IconoDelEnlace icono={a.icono} />
                         <span className="truncate">{a.texto}</span>

@@ -1088,6 +1088,7 @@
     "volver": "Volver a mis aplicaciones"
   },
   "cuenta": {
+    "sinAcceso": "Sin acceso: pídeselo a un administrador",
     "rotulo": "Tu cuenta",
     "alcance": "Sucursal",
     "todasLasSucursales": "Todas las sucursales",
@@ -1098,6 +1099,7 @@
     "miSucursalDesc": "La gente de tu sucursal y lo que puede hacer cada uno."
   },
   "rail": {
+    "inicio": "Inicio",
     "sucursales": "Sucursales",
     "miSucursal": "Mi sucursal",
     "personas": "Personas",
