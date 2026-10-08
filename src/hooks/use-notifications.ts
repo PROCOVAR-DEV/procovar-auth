@@ -15,12 +15,23 @@ interface UseNotificationsOptions {
     limit?: number;
     /** Poll + refresh on window focus. The bell wants this; a detail page doesn't. */
     live?: boolean;
+    /** Si se pasa, pide esa página al panel paginado (/api/notifications/panel) en vez de `filter`/`limit`. */
+    page?: number;
 }
 
-export function useNotifications({ filter = "all", limit = 20, live = false }: UseNotificationsOptions = {}) {
+export interface PageInfo {
+    page: number;
+    pageCount: number;
+    total: number;
+}
+
+export function useNotifications({ filter = "all", limit = 20, live = false, page }: UseNotificationsOptions = {}) {
     const [notifications, setNotifications] = useState<InboxNotification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
+    const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
     const [loading, setLoading] = useState(true);
+    // El servicio de avisos no contestó: distinto de «no hay avisos».
+    const [error, setError] = useState(false);
     const [pending, setPending] = useState<string | null>(null);
     // Avoids a slow response for a filter the user already left overwriting the new one.
     const requestId = useRef(0);
@@ -28,21 +39,25 @@ export function useNotifications({ filter = "all", limit = 20, live = false }: U
     const refresh = useCallback(async () => {
         const current = ++requestId.current;
         try {
-            const res = await fetch(`/api/notifications?filter=${filter}&limit=${limit}`, {
-                credentials: "include",
-                cache: "no-store",
-            });
-            if (!res.ok) return;
-            const data = (await res.json()) as InboxResponse;
+            const url =
+                page === undefined
+                    ? `/api/notifications?filter=${filter}&limit=${limit}`
+                    : `/api/notifications/panel?page=${page}`;
+            const res = await fetch(url, { credentials: "include", cache: "no-store" });
+            const data = res.ok ? ((await res.json()) as InboxResponse) : null;
             if (current !== requestId.current) return;
+            setError(!data);
+            if (!data) return;
             setNotifications(data.notifications ?? []);
             setUnreadCount(data.unreadCount ?? 0);
+            if (data.pageCount) setPageInfo({ page: data.page ?? 1, pageCount: data.pageCount, total: data.total ?? 0 });
         } catch {
             // Notifications are a side channel: a failure must not break the page.
+            if (current === requestId.current) setError(true);
         } finally {
             if (current === requestId.current) setLoading(false);
         }
-    }, [filter, limit]);
+    }, [filter, limit, page]);
 
     useEffect(() => {
         setLoading(true);
@@ -123,5 +138,5 @@ export function useNotifications({ filter = "all", limit = 20, live = false }: U
         }
     }, [refresh]);
 
-    return { notifications, unreadCount, loading, pending, refresh, markRead, archive, unarchive, archiveAllRead };
+    return { notifications, unreadCount, loading, error, pageInfo, pending, refresh, markRead, archive, unarchive, archiveAllRead };
 }

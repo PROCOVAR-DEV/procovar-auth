@@ -1,13 +1,10 @@
-import { getCurrentUser } from "@/server/auth.server";
 import { redirect } from "next/navigation";
-import { MiPerfilClient } from "@/components/profile/personal/mi-perfil-client";
 
-export const dynamic = "force-dynamic";
-
-/** Mis datos, mi contraseña y mis avisos. */
-export default async function MiPerfilPage() {
-    const { data: user } = await getCurrentUser();
-    if (!user) redirect("/");
-
-    return <MiPerfilClient />;
+/**
+ * Configurar perfil ya no es una pantalla aparte: vive dentro de Mi cuenta
+ * (`/profile`, sección `#configurar-perfil`). Se deja la ruta solo para no romper
+ * los enlaces guardados.
+ */
+export default function MiPerfilPage() {
+    redirect("/profile#configurar-perfil");
 }

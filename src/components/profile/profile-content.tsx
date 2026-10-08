@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Icon } from "@iconify/react";
 import { useTranslations } from "next-intl";
 import { Icons } from "@/components/icons/iconify";
+import { MiPerfilSecciones } from "@/components/profile/personal/mi-perfil-secciones";
 
 interface User {
     id: string;
@@ -11,6 +12,8 @@ interface User {
     email: string;
     image?: string | null;
     emailVerified: boolean;
+    /** Lo que la persona completa en Configurar perfil; vacío si no lo ha puesto. */
+    phone?: string | null;
     isSystemAdmin?: boolean;
     createdAt: Date;
 }
@@ -81,6 +84,12 @@ export function ProfileContent({ user, pertenencias, rol }: ProfileContentProps)
                     <div className="min-w-0 flex-1">
                         <h2 className="pv-titulo truncate text-lg">{user.name}</h2>
                         <p className="truncate text-sm text-pv-tinta-suave">{user.email}</p>
+                        {user.phone && (
+                            <p className="mt-0.5 flex items-center gap-1.5 text-sm text-pv-tinta-suave">
+                                <Icon icon="lucide:phone" className="size-3.5 shrink-0" aria-hidden />
+                                <span className="truncate">{user.phone}</span>
+                            </p>
+                        )}
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                             {etiquetaRol && (
                                 <span className="pv-etiqueta pv-etiqueta-azul">{etiquetaRol}</span>
@@ -98,14 +107,15 @@ export function ProfileContent({ user, pertenencias, rol }: ProfileContentProps)
                         </div>
                     </div>
 
-                    <Link
-                        href="/profile/me"
+                    {/* Ancla de esta misma página: configurar el perfil ya no es otra pantalla. */}
+                    <a
+                        href="#configurar-perfil"
                         className="pv-toque inline-flex shrink-0 items-center gap-2 bg-pv-azul px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-pv-azul-hondo"
                     >
                         <Icons.userCircle className="size-4" />
-                        <span className="hidden sm:inline">{t("profile.settings")}</span>
-                        <Icon icon="lucide:chevron-right" className="size-4" aria-hidden />
-                    </Link>
+                        <span className="hidden sm:inline">{t("nav.settings")}</span>
+                        <Icon icon="lucide:chevron-down" className="size-4" aria-hidden />
+                    </a>
                 </div>
             </div>
 
@@ -215,6 +225,8 @@ export function ProfileContent({ user, pertenencias, rol }: ProfileContentProps)
                     </Link>
                 ))}
             </div>
+
+            <MiPerfilSecciones />
         </div>
     );
 }

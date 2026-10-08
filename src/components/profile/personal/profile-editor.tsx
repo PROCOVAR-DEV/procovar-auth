@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Input } from "@heroui/react";
 import { Icon } from "@iconify/react";
 import { useTranslations } from "next-intl";
@@ -16,6 +17,7 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 export function ProfileEditor() {
     const t = useTranslations();
     const { user, refreshUser } = useFullUser();
+    const router = useRouter();
 
     const [values, setValues] = useState<Record<ProfileFieldKey, string>>({
         name: user?.name ?? "",
@@ -37,6 +39,8 @@ export function ProfileEditor() {
         } else {
             setFieldState((s) => ({ ...s, [key]: "saved" }));
             await refreshUser();
+            // El resumen de Mi cuenta lo pinta el servidor: sin esto no se ve lo guardado.
+            router.refresh();
         }
     }
 

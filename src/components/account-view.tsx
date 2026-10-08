@@ -149,9 +149,6 @@ export async function AccountView({ user, role }: AccountViewProps) {
                 <Link href="/profile" className="text-pv-azul hover:underline">
                     {t("nav.profile")}
                 </Link>
-                <Link href="/profile/me" className="text-pv-azul hover:underline">
-                    {t("nav.settings")}
-                </Link>
                 <Link href="/logout" className="ml-auto text-pv-cuno hover:underline">
                     {t("nav.logOut")}
                 </Link>

@@ -85,7 +85,6 @@
   "profile": {
     "emailVerified": "Email verificado",
     "emailNotVerified": "Email no verificado",
-    "settings": "Mi perfil",
     "title": "Mi cuenta",
     "myBranches": "Dónde trabajo",
     "noBranches": "Todavía no estás en ninguna sucursal. Pídeselo a un administrador.",
@@ -449,7 +448,6 @@
     }
   },
   "myProfile": {
-    "title": "Mi perfil",
     "stepByStep": "Rellenar paso a paso",
     "saveError": "No se pudo guardar, reintenta.",
     "wizard": {
@@ -1109,13 +1107,31 @@
     "ajustes": "Ajustes",
     "abrirMenu": "Abrir el menú",
     "cerrarMenu": "Cerrar el menú",
-    "miCuenta": "Mi cuenta",
-    "configurarPerfil": "Configurar perfil"
+    "miCuenta": "Mi cuenta"
   },
   "versionNueva": {
     "titulo": "Hay una versión nueva",
     "detalle": "Esta pestaña está usando una versión anterior. Recarga para tener los últimos cambios; lo que ya está guardado no se pierde.",
     "recargar": "Recargar ahora",
     "posponer": "Ahora no"
+  },
+  "avisosPanel": {
+    "titulo": "Avisos",
+    "campanaAria": "Avisos",
+    "campanaConNoLeidosAria": "Avisos, {n} sin leer",
+    "panelAria": "Panel de avisos",
+    "noLeidos": "{n} sin leer",
+    "noLeido": "Sin leer",
+    "cargando": "Cargando avisos…",
+    "vacio": "No tienes avisos",
+    "vacioPista": "Cuando algo necesite tu atención, aparecerá aquí.",
+    "error": "No se pudieron cargar los avisos",
+    "errorPista": "El servicio de avisos no contesta. El resto de la página sigue funcionando.",
+    "reintentar": "Reintentar",
+    "paginacionAria": "Paginación de avisos",
+    "pagina": "Página {actual} de {total}",
+    "anterior": "Página anterior",
+    "siguiente": "Página siguiente",
+    "gestionar": "Gestionar avisos"
   }
 }

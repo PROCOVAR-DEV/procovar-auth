@@ -93,7 +93,7 @@ export function Armazon({ persona, children }: { persona: Persona; children: Rea
     // Los apartados de administración van primero y solo los ve quien manda; los
     // dos últimos los ve TODO el mundo.
     //
-    // "Mi cuenta" y "Configurar perfil" están aquí, en la navegación, y no solo
+    // "Mi cuenta" (que lleva dentro Configurar perfil) está aquí, en la navegación, y no solo
     // colgando del nombre de abajo. Antes la única forma de llegar al perfil era
     // pulsar el nombre en la esquina, que no parece un enlace: quien no es
     // administrador entraba, no veía ningún apartado y se quedaba sin saber a
@@ -109,7 +109,6 @@ export function Armazon({ persona, children }: { persona: Persona; children: Rea
         { href: "/dashboard/auditoria", icono: "lucide:scroll-text", texto: t("rail.auditoria"), soloGlobal: true },
         { href: "/apikeys", icono: "lucide:key-round", texto: t("rail.aplicaciones"), soloGlobal: true },
         { href: "/profile", icono: "lucide:circle-user", texto: t("rail.miCuenta") },
-        { href: "/profile/me", icono: "lucide:settings", texto: t("rail.configurarPerfil") },
     ];
 
     const visibles = APARTADOS.filter((a) => {
@@ -135,8 +134,7 @@ export function Armazon({ persona, children }: { persona: Persona; children: Rea
                         className="pv-rail-enlace"
                         // Coincidencia exacta o de subruta con barra: con un
                         // startsWith pelado, /profile se marcaría como activo
-                        // también estando en /profile/me y saldrían dos
-                        // apartados encendidos a la vez.
+                        // también en cualquier ruta que solo empiece igual.
                         data-activo={a.href === "/" ? ruta === "/" : ruta === a.href || ruta.startsWith(`${a.href}/`)}
                     >
                         <IconoDelEnlace icono={a.icono} />

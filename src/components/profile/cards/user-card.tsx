@@ -55,16 +55,16 @@ export function UserCard({ user, userInitial }: { user: User; userInitial: strin
 
                     <Button
                         as={Link}
-                        href="/profile/me"
+                        href="/profile#configurar-perfil"
                         variant="bordered"
                         className="shrink-0 font-medium hidden sm:flex border-pv-azul/85 text-pv-azul bg-transparent hover:bg-pv-azul/8"
                         startContent={<Icons.userCircle className="size-4" />}
                     >
-                        {t('profile.settings')}
+                        {t('nav.settings')}
                     </Button>
                     <Button
                         as={Link}
-                        href="/profile/me"
+                        href="/profile#configurar-perfil"
                         variant="bordered"
                         isIconOnly
                         className="shrink-0 sm:hidden border-pv-azul/85 text-pv-azul bg-transparent hover:bg-pv-azul/8"

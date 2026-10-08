@@ -70,6 +70,10 @@ export interface InboxResponse {
     nextCursor: string | null;
     /** Unread (status=SENT), stale holds already excluded. */
     unreadCount: number;
+    /** Solo en /api/notifications/panel (el panel de la campana, paginado). */
+    page?: number;
+    pageCount?: number;
+    total?: number;
 }
 
 export type InboxFilter = "unread" | "all" | "archived";

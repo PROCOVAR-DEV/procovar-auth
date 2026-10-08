@@ -31,6 +31,8 @@ export default async function ProfilePage() {
     const conRol = await prisma.user.findUnique({
         where: { id: user.id },
         select: {
+            // El teléfono lo completa la persona en Configurar perfil; aquí se enseña.
+            phone: true,
             defaultRole: {
                 select: {
                     name: true,
@@ -68,7 +70,7 @@ export default async function ProfilePage() {
 
     return (
         <ProfileContent
-            user={user}
+            user={{ ...user, phone: conRol?.phone ?? null }}
             pertenencias={pertenencias}
             rol={
                 conRol?.defaultRole

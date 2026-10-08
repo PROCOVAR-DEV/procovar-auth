@@ -85,7 +85,6 @@
   "profile": {
     "emailVerified": "Email Verified",
     "emailNotVerified": "Email not verified",
-    "settings": "My profile",
     "title": "My account",
     "myBranches": "Where I work",
     "noBranches": "You are not in any sucursal yet. Ask an administrator.",
@@ -449,7 +448,6 @@
     }
   },
   "myProfile": {
-    "title": "My profile",
     "stepByStep": "Fill in step by step",
     "saveError": "Couldn't save, try again.",
     "wizard": {
@@ -1109,13 +1107,31 @@
     "ajustes": "Settings",
     "abrirMenu": "Open menu",
     "cerrarMenu": "Close menu",
-    "miCuenta": "My account",
-    "configurarPerfil": "Edit profile"
+    "miCuenta": "My account"
   },
   "versionNueva": {
     "titulo": "A new version is available",
     "detalle": "This tab is running an older version. Reload to get the latest changes; nothing already saved is lost.",
     "recargar": "Reload now",
     "posponer": "Not now"
+  },
+  "avisosPanel": {
+    "titulo": "Notifications",
+    "campanaAria": "Notifications",
+    "campanaConNoLeidosAria": "Notifications, {n} unread",
+    "panelAria": "Notifications panel",
+    "noLeidos": "{n} unread",
+    "noLeido": "Unread",
+    "cargando": "Loading notifications…",
+    "vacio": "You have no notifications",
+    "vacioPista": "When something needs your attention, it will show up here.",
+    "error": "Notifications could not be loaded",
+    "errorPista": "The notifications service is not responding. The rest of the page keeps working.",
+    "reintentar": "Try again",
+    "paginacionAria": "Notifications pagination",
+    "pagina": "Page {actual} of {total}",
+    "anterior": "Previous page",
+    "siguiente": "Next page",
+    "gestionar": "Manage notifications"
   }
 }

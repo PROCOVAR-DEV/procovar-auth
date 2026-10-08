@@ -127,6 +127,8 @@ export interface FetchInboxParams {
 export interface InboxPage {
     data: InboxNotification[];
     nextCursor: string | null;
+    /** El servicio no contestó (caído, sin configurar, firma mala). `data` vacío NO significa «sin avisos». */
+    failed: boolean;
 }
 
 export const fetchInbox = async (params: FetchInboxParams): Promise<InboxPage> => {
@@ -147,6 +149,7 @@ export const fetchInbox = async (params: FetchInboxParams): Promise<InboxPage> =
     return {
         data: Array.isArray(result?.data) ? result.data : [],
         nextCursor: result?.nextCursor ?? null,
+        failed: result === null,
     };
 };
 
