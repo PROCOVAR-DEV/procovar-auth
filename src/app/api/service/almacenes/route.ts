@@ -29,6 +29,11 @@ const AlmacenSchema = z.object({
     /** Vacío = es nuevo. */
     id: z.string().optional(),
     nombre: z.string().min(1),
+    /**
+     * El `objectCode` de Ventra. AUSENTE = no tocar el que ya tiene (los clientes viejos de Reparto no
+     * lo mandan y no pueden borrar los códigos al guardar); "" o null = quitarlo.
+     */
+    codigo: z.string().max(40).nullish(),
     direccion: z.string().nullish(),
     latitud: z.number().nullish(),
     longitud: z.number().nullish(),
@@ -44,6 +49,7 @@ const BodySchema = z.object({
 const salida = (a: {
     id: string;
     nombre: string;
+    codigo: string | null;
     direccion: string | null;
     latitud: number | null;
     longitud: number | null;
@@ -61,7 +67,7 @@ export const GET = withServiceAuth(async (req: NextRequest) => {
             name: true,
             almacenes: {
                 select: {
-                    id: true, nombre: true, direccion: true,
+                    id: true, nombre: true, codigo: true, direccion: true,
                     latitud: true, longitud: true, principal: true, activo: true,
                 },
                 orderBy: [{ principal: 'desc' }, { nombre: 'asc' }],
@@ -101,38 +107,72 @@ export const PUT = withServiceAuth(async (req: NextRequest) => {
      * elegiría uno distinto y el mismo domicilio saldría por dos distancias; con ninguno,
      * ninguna sabría desde dónde medir. Si no viene marcado ninguno, se marca el primero.
      */
+    // Dos almacenes de la misma sucursal con el mismo código no se pueden emparejar con un pedido: se
+    // rechaza aquí con el nombre de los dos, y no con el error crudo del índice único.
+    const vistos = new Map<string, string>();
+    for (const a of almacenes) {
+        const c = a.codigo?.trim().toUpperCase();
+        if (!c) continue;
+        const otro = vistos.get(c);
+        if (otro) {
+            return NextResponse.json(
+                { error: `el código ${c} lo llevan dos almacenes: «${otro}» y «${a.nombre.trim()}»` },
+                { status: 409 },
+            );
+        }
+        vistos.set(c, a.nombre.trim());
+    }
+
     const marcados = almacenes.filter((a) => a.principal);
     const principal = marcados[0] ?? almacenes[0];
 
-    await prisma.$transaction(async (tx) => {
-        // Los que ya no vienen, fuera. La lista que llega es cómo tiene que quedar.
-        const quedan = almacenes.map((a) => a.id).filter(Boolean) as string[];
+    try {
+        await prisma.$transaction(async (tx) => {
+            // Los que ya no vienen, fuera. La lista que llega es cómo tiene que quedar.
+            const quedan = almacenes.map((a) => a.id).filter(Boolean) as string[];
 
-        await tx.almacen.deleteMany({
-            where: { orgId: org.id, ...(quedan.length ? { id: { notIn: quedan } } : {}) },
+            await tx.almacen.deleteMany({
+                where: { orgId: org.id, ...(quedan.length ? { id: { notIn: quedan } } : {}) },
+            });
+
+            // Intercambiar códigos entre dos almacenes (A: 2→13, B: 13→2) chocaría con el índice único a mitad
+            // del bucle. Los que traen código se liberan primero y el bucle los deja como vienen.
+            const aRecodificar = almacenes.filter((a) => a.id && a.codigo !== undefined).map((a) => a.id as string);
+            if (aRecodificar.length) {
+                await tx.almacen.updateMany({ where: { orgId: org.id, id: { in: aRecodificar } }, data: { codigo: null } });
+            }
+
+            for (const a of almacenes) {
+                const datos = {
+                    nombre: a.nombre.trim(),
+                    direccion: a.direccion?.trim() || null,
+                    // Vacío es «no lo sé», no cero: un cero pone el almacén en el Atlántico y
+                    // el domicilio se cobra por miles de kilómetros.
+                    latitud: a.latitud ?? null,
+                    longitud: a.longitud ?? null,
+                    principal: a === principal,
+                    activo: a.activo ?? true,
+                    // undefined = Prisma no lo toca. Los códigos de Ventra son números y letras que se
+                    // comparan sin mayúsculas en Reparto: se guardan ya en mayúsculas y sin espacios.
+                    ...(a.codigo !== undefined && { codigo: a.codigo?.trim().toUpperCase() || null }),
+                };
+
+                if (a.id) await tx.almacen.update({ where: { id: a.id }, data: datos });
+                else await tx.almacen.create({ data: { ...datos, orgId: org.id } });
+            }
         });
-
-        for (const a of almacenes) {
-            const datos = {
-                nombre: a.nombre.trim(),
-                direccion: a.direccion?.trim() || null,
-                // Vacío es «no lo sé», no cero: un cero pone el almacén en el Atlántico y
-                // el domicilio se cobra por miles de kilómetros.
-                latitud: a.latitud ?? null,
-                longitud: a.longitud ?? null,
-                principal: a === principal,
-                activo: a.activo ?? true,
-            };
-
-            if (a.id) await tx.almacen.update({ where: { id: a.id }, data: datos });
-            else await tx.almacen.create({ data: { ...datos, orgId: org.id } });
+    } catch (e) {
+        // Dos peticiones a la vez con el mismo código: gana una y la otra recibe esto, no un 500.
+        if ((e as { code?: string })?.code === 'P2002') {
+            return NextResponse.json({ error: 'ese código ya lo lleva otro almacén de la sucursal' }, { status: 409 });
         }
-    });
+        throw e;
+    }
 
     const guardados = await prisma.almacen.findMany({
         where: { orgId: org.id },
         select: {
-            id: true, nombre: true, direccion: true,
+            id: true, nombre: true, codigo: true, direccion: true,
             latitud: true, longitud: true, principal: true, activo: true,
         },
         orderBy: [{ principal: 'desc' }, { nombre: 'asc' }],

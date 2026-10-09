@@ -509,6 +509,13 @@ model Almacen {
   latitud   Float?
   longitud  Float?
 
+  /// El código del almacén en Ventra (`objectCode`), el mismo que PEDIDO manda dentro de cada
+  /// pedido. Sin él Reparto no puede saber de qué almacén sale un pedido y lo mide desde el
+  /// principal. Es de la SUCURSAL: el «2» es PV CAMAGUEY en Camagüey y AURORA en Santiago, por
+  /// eso la unicidad es (sucursal, código). Se rellena desde la pantalla de Almacenes de Reparto.
+  /// Null = sin código todavía (Postgres no cuenta los nulos en un índice único).
+  codigo    String?
+
   /// El que se usa cuando nadie dice cuál. Con varios almacenes hay que poder decir
   /// desde cuál se mide por defecto, o cada aplicación elegiría uno distinto.
   principal Boolean      @default(false)
@@ -517,6 +524,7 @@ model Almacen {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
+  @@unique([orgId, codigo])
   @@index([orgId])
   @@index([orgId, principal])
 }
