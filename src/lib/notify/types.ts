@@ -64,9 +64,22 @@ export interface InboxNotification {
     archivedAt: string | null;
 }
 
+/**
+ * Lo que el navegador recibe de un aviso: solo lo que se pinta, el destino ya calculado
+ * en el servidor (`href`) y nada más. Sin `recipientUserId`, sin `resumeToken` suelto ni
+ * ids de reserva. Lo fabrica `vistaDeAviso` (./normalizar.ts).
+ */
+export interface AvisoVista extends Omit<InboxNotification, "recipientUserId" | "payload"> {
+    payload: Pick<
+        NotificationPayload,
+        "title" | "body" | "propertyName" | "code" | "checkIn" | "checkOut" | "role" | "kind"
+    >;
+    href?: string | null;
+}
+
 /** What our own /api/notifications routes hand to the browser. */
 export interface InboxResponse {
-    notifications: InboxNotification[];
+    notifications: AvisoVista[];
     nextCursor: string | null;
     /** Unread (status=SENT), stale holds already excluded. */
     unreadCount: number;
@@ -78,29 +91,41 @@ export interface InboxResponse {
 
 export type InboxFilter = "unread" | "all" | "archived";
 
-export const isUnread = (n: InboxNotification): boolean => n.status === "SENT" && !n.readAt;
+export const isUnread = (n: Pick<InboxNotification, "status" | "readAt">): boolean =>
+    n.status === "SENT" && !n.readAt;
+
+/** Objeto plano (lo que sale de `JSON.parse`): ni `null`, ni lista, ni número, ni texto. */
+export const esObjetoPlano = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v);
+
+const cadena = (v: unknown): string | undefined => (typeof v === "string" && v !== "" ? v : undefined);
 
 /**
  * Where a notification takes the user. The payload deliberately carries no
  * absolute URL (it is written by qb-back, which must not know our routes), so
  * the destination is derived here — never taken from the payload.
  */
-export const notificationHref = (payload: NotificationPayload): string | null => {
+export const notificationHref = (payload: unknown): string | null => {
+    // El payload lo escribe otro servicio: con `null` o de tipo raro no se lanza, no hay destino.
+    if (!esObjetoPlano(payload)) return null;
+    const resumeToken = cadena(payload.resumeToken);
+    const reservationId = cadena(payload.reservationId);
     // «Reserva en curso» is the one notification whose job is to RESUME something, not
     // to show it: it must land on the booking step, and that route only opens with the
     // signed token. Without one (older payload, or qb-back had no BEARER_TOKEN) we fall
     // through to the reservation summary rather than send the user somewhere broken.
-    if (payload.resumeToken) {
-        return `/booking?secure=${encodeURIComponent(payload.resumeToken)}`;
+    if (resumeToken) {
+        return `/booking?secure=${encodeURIComponent(resumeToken)}`;
     }
     if (payload.role === "owner") {
-        return payload.reservationId ? `/profile/org-reservations/${payload.reservationId}` : null;
+        return reservationId ? `/profile/org-reservations/${encodeURIComponent(reservationId)}` : null;
     }
     if (payload.kind === "invoice") {
-        return payload.invoiceId ? `/profile/invoices/${payload.invoiceId}` : null;
+        const invoiceId = cadena(payload.invoiceId);
+        return invoiceId ? `/profile/invoices/${encodeURIComponent(invoiceId)}` : null;
     }
     if (payload.kind === "reservation") {
-        return payload.reservationId ? `/profile/reservations/${payload.reservationId}` : null;
+        return reservationId ? `/profile/reservations/${encodeURIComponent(reservationId)}` : null;
     }
     return null;
 };

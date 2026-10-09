@@ -203,6 +203,7 @@ export async function POST(request: NextRequest) {
                     return createdOrg;
                 });
 
+                // Crear la sucursal con su dueño sólo da acceso: no se publica nada.
                 return NextResponse.json({ organization }, { status: 201 });
             } catch (error) {
                 if (

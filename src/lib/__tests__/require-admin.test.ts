@@ -48,6 +48,13 @@ describe('resolveSessionUser (revocation choke point)', () => {
         expect(resolved?.session.id).toBe('s1')
     })
 
+    it('pide la sesión a la BASE, no a la caché de la cookie (una sesión cerrada no puede seguir valiendo)', async () => {
+        mockGetSession.mockResolvedValue(SESSION as any)
+        mockIsRevoked.mockResolvedValue(false)
+        await resolveSessionUser()
+        expect(mockGetSession).toHaveBeenCalledWith(expect.objectContaining({ query: { disableCookieCache: true } }))
+    })
+
     it('returns NULL when there is no session at all', async () => {
         mockGetSession.mockResolvedValue(null as any)
         await expect(resolveSessionUser()).resolves.toBeNull()

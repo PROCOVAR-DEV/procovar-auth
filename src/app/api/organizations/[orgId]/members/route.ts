@@ -143,6 +143,8 @@ export async function POST(request: Request, { params }: Params) {
             },
         });
 
+        // Un alta sólo da acceso: no se publica nada. Publicar aquí dejaba a cualquier dueño de una
+        // organización echar de todas las aplicaciones a quien añadiera por correo (auditoría 08/10/2026).
         return NextResponse.json({ member }, { status: 201 });
     } catch (error) {
         console.error('Failed to add member:', error);

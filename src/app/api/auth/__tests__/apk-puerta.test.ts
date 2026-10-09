@@ -229,7 +229,7 @@ describe('POST /api/auth/refresh — la puerta', () => {
         filaDeRefresh({ usedAt: new Date(Date.now() - 10 * 60_000) })
         db.user.findUnique.mockResolvedValue(persona([]))
         expect((await pedirRefresh()).status).toBe(401)
-        expect(db.session.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { revokedAt: expect.any(Date) } }))
+        expect(db.session.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { revokedAt: expect.any(Date), expiresAt: expect.any(Date) } }))
     })
 })
 

@@ -62,14 +62,17 @@ const signedHeaders = (method: string, path: string, query: string, body: string
     };
 };
 
-const request = async <T>(
+/** Lo que contestó Notify: un cuerpo, «no existe» (404), o ni eso (caído, sin configurar, firma mala). */
+type Envio<T> = { kind: "ok"; data: T } | { kind: "not_found" } | { kind: "failed" };
+
+const send = async <T>(
     method: "GET" | "POST",
     path: string,
     options: { query?: Query; body?: unknown } = {},
-): Promise<T | null> => {
+): Promise<Envio<T>> => {
     if (!inboxConfigured()) {
         logger.warn("QB Notify inbox skipped: missing QB_NOTIFY_URL/QB_NOTIFY_KEY_ID/QB_NOTIFY_SECRET", { path });
-        return null;
+        return { kind: "failed" };
     }
 
     const query = canonicalQuery(options.query ?? {});
@@ -90,27 +93,33 @@ const request = async <T>(
             ...(body ? { body } : {}),
         });
 
+        if (response.status === 404) return { kind: "not_found" };
         if (!response.ok) {
             logger.error("QB Notify inbox responded with an error", {
                 path,
                 status: response.status,
                 error: await response.text().catch(() => ""),
             });
-            return null;
+            return { kind: "failed" };
         }
 
         const text = await response.text();
-        if (!text) return {} as T;
-        return JSON.parse(text) as T;
+        return { kind: "ok", data: text ? (JSON.parse(text) as T) : ({} as T) };
     } catch (error) {
         logger.error("QB Notify inbox request failed", {
             path,
             error: error instanceof Error ? error.message : String(error),
         });
-        return null;
+        return { kind: "failed" };
     } finally {
         clearTimeout(timer);
     }
+};
+
+/** Para quien no distingue «no existe» de «falló»: ambos son `null`. */
+const request = async <T>(...args: Parameters<typeof send>): Promise<T | null> => {
+    const r = await send<T>(...args);
+    return r.kind === "ok" ? r.data : null;
 };
 
 export interface FetchInboxParams {
@@ -153,19 +162,26 @@ export const fetchInbox = async (params: FetchInboxParams): Promise<InboxPage> =
     };
 };
 
+/** Resultado de buscar UN aviso: no existe y «Notify falló» son cosas distintas (404 y 502). */
+export type BusquedaAviso =
+    | { kind: "found"; notification: InboxNotification }
+    | { kind: "not_found" }
+    | { kind: "failed" };
+
 /**
  * Single notification, used to prove ownership before mutating it: the read /
  * archive endpoints are scoped by *application*, not by user, so without this
  * check any logged-in user could mark another user's notification read.
  */
-export const fetchNotification = async (id: string): Promise<InboxNotification | null> => {
-    const result = await request<InboxNotification & { data?: InboxNotification }>(
+export const fetchNotification = async (id: string): Promise<BusquedaAviso> => {
+    const r = await send<InboxNotification & { data?: InboxNotification }>(
         "GET",
         `/v1/notifications/${encodeURIComponent(id)}`,
     );
-    if (!result) return null;
-    const view = result.data ?? result;
-    return view?.id ? view : null;
+    if (r.kind !== "ok") return r;
+    const view = r.data.data ?? r.data;
+    // 200 sin un aviso dentro: Notify contestó algo que no es un aviso, no «no existe».
+    return view?.id ? { kind: "found", notification: view } : { kind: "failed" };
 };
 
 const notificationAction = async (id: string, action: string): Promise<boolean> => {

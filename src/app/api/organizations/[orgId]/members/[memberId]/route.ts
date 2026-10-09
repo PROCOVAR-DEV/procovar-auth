@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 import { headers } from 'next/headers';
+import { publicarPermisosCambiados } from '@/lib/eventos-de-sesion';
+import { cambioDeRolPuedeQuitar } from '@/lib/pierde-acceso';
 
 type Params = { params: Promise<{ orgId: string; memberId: string }> };
 
@@ -79,6 +81,8 @@ export async function PATCH(request: Request, { params }: Params) {
                     data: { role: 'owner' },
                 }),
             ]);
+            // Quien recibe la propiedad sólo gana; quien la entrega baja a admin: sólo él pierde.
+            await publicarPermisosCambiados([currentMembership.userId], 'rol');
 
             return NextResponse.json({ 
                 message: 'Ownership transferred',
@@ -110,6 +114,8 @@ export async function PATCH(request: Request, { params }: Params) {
             },
         });
 
+        // Sólo si el cambio puede QUITAR algo (bajar de rango); ascender sólo da acceso.
+        if (cambioDeRolPuedeQuitar(targetMember.role, role)) await publicarPermisosCambiados([member.userId], 'rol');
         return NextResponse.json({ member });
     } catch (error) {
         console.error('Failed to update member:', error);
@@ -175,6 +181,7 @@ export async function DELETE(request: Request, { params }: Params) {
         await prisma.member.delete({
             where: { id: memberId },
         });
+        await publicarPermisosCambiados([targetMember.userId], 'membresia');
 
         return NextResponse.json({ success: true });
     } catch (error) {

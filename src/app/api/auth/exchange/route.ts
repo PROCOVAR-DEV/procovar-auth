@@ -48,7 +48,7 @@ export const POST = withServiceAuth(async (req: NextRequest, ctx) => {
     // enseñarle a una persona legítima que no puede entrar (revisión del 08/10/2026, S-2).
     let puede: boolean;
     try {
-        puede = await comprobarEntrada(codePayload.userId, codePayload.clientId);
+        puede = await comprobarEntrada(codePayload.userId, codePayload.clientId, { bajaPasa: false }); // web: una baja no canjea
     } catch (e) {
         if (!(e instanceof ComprobacionNoDisponible)) throw e;
         return NextResponse.json(CUERPO_NO_DISPONIBLE, { status: 503 });

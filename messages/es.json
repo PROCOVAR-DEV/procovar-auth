@@ -5,19 +5,13 @@
     "contact": "Contacto",
     "listProperty": "Lista tu propiedad",
     "profile": "Mi cuenta",
-    "notifications": "Notificaciones",
     "settings": "Configurar perfil",
     "invoices": "Facturas",
     "reservations": "Reservas",
     "services": "Suscripciones",
     "vouchers": "Vales",
     "logOut": "Cerrar sesión",
-    "userMenu": "Menú de usuario",
-    "notificationsAria": "Notificaciones",
-    "markAllRead": "Leídas todas",
-    "noNotifications": "Sin novedades",
-    "noNotificationsHint": "Te avisaremos cuando haya actividad",
-    "manageNotifications": "Gestionar notificaciones"
+    "userMenu": "Menú de usuario"
   },
   "auth": {
     "getStarted": "Comenzar",
@@ -1132,6 +1126,82 @@
     "pagina": "Página {actual} de {total}",
     "anterior": "Página anterior",
     "siguiente": "Página siguiente",
-    "gestionar": "Gestionar avisos"
+    "gestionar": "Gestionar avisos",
+    "marcarTodo": "Marcar todo como leído",
+    "marcandoTodo": "Marcando…",
+    "marcarTodoError": "{n, plural, one {No se pudo marcar # aviso} other {No se pudieron marcar # avisos}}"
+  },
+  "dispositivos": {
+    "titulo": "Dispositivos y sesiones",
+    "ayuda": "Dónde está abierta esta cuenta ahora mismo. Si hay alguna que no se reconoce, se puede cerrar desde aquí.",
+    "cargando": "Buscando las sesiones…",
+    "vacio": "No hay sesiones activas que mostrar.",
+    "error": "No se pudieron cargar las sesiones",
+    "errorPista": "El resto de la página sigue funcionando.",
+    "reintentar": "Reintentar",
+    "conteo": "Tu cuenta está iniciada en {dispositivos, plural, one {# dispositivo} other {# dispositivos}} y {navegadores, plural, one {# navegador} other {# navegadores}}.",
+    "grupo": {
+      "navegadores": "Navegadores",
+      "dispositivos": "Dispositivos de Reparto"
+    },
+    "estaSesion": "Esta sesión",
+    "esteDispositivo": "Este dispositivo",
+    "app": "App de Reparto",
+    "appEn": "App de Reparto en {sistema}",
+    "nombre": "{navegador} en {sistema}",
+    "sinNombre": "Navegador sin identificar",
+    "ip": "IP {ip}",
+    "sinIp": "IP sin registrar",
+    "entroEl": "Entró el {fecha}",
+    "ultimaActividad": "Última actividad: {fecha}",
+    "aparatoAviso": "Se cierra en cuanto el dispositivo vuelva a conectarse o, como mucho, en 15 minutos.",
+    "cerrarEsta": "Cerrar esta sesión",
+    "cerrarEstaAria": "Cerrar la sesión de {nombre}",
+    "cerrarEsteAparato": "Cerrar este dispositivo",
+    "cerrarEsteAparatoAria": "Cerrar el dispositivo {nombre}",
+    "cerrarOtras": "Cerrar las demás sesiones",
+    "cerrarTodas": "Cerrar en todos los dispositivos",
+    "confirmar": {
+      "tituloOtras": "¿Cerrar las demás sesiones?",
+      "cuerpoOtras": "Se cerrarán todas las sesiones salvo esta: los demás navegadores y los dispositivos de Reparto.",
+      "tituloTodas": "¿Cerrar en todos los dispositivos?",
+      "cuerpoTodas": "Se cerrarán todas las sesiones, también esta: habrá que volver a entrar.",
+      "avisoDispositivos": "El teléfono y el escritorio de Reparto también se cerrarán y tendrán que volver a entrar al recuperar la señal; el trabajo sin subir no se pierde.",
+      "cancelar": "Cancelar",
+      "confirmarOtras": "Cerrar las demás",
+      "confirmarTodas": "Cerrar en todos"
+    },
+    "resultado": {
+      "una": "Sesión cerrada.",
+      "otras": "Se cerraron las demás sesiones.",
+      "noExiste": "Esa sesión ya no existe.",
+      "falloAccion": "No se pudo cerrar. Inténtalo de nuevo."
+    }
+  },
+  "historial": {
+    "titulo": "Historial de inicios de sesión",
+    "ayuda": "Cuándo y desde dónde se entró en esta cuenta en los últimos 90 días. Sólo salen las entradas que se completaron, no los intentos fallidos. Si hay alguna que no se reconoce, cambia la contraseña y cierra las demás sesiones.",
+    "cargando": "Buscando los inicios de sesión…",
+    "vacio": "Todavía no hay inicios de sesión que mostrar.",
+    "error": "No se pudo cargar el historial",
+    "errorPista": "El resto de la página sigue funcionando.",
+    "reintentar": "Reintentar",
+    "errorMas": "No se pudieron cargar más inicios. Inténtalo de nuevo.",
+    "verMas": "Ver más",
+    "estaSesion": "Esta sesión",
+    "abierta": "Sigue abierta",
+    "cerrada": "Cerrada",
+    "app": "App de Reparto",
+    "appEn": "App de Reparto en {sistema}",
+    "nombre": "{navegador} en {sistema}",
+    "sinNombre": "Navegador sin identificar",
+    "ip": "IP {ip}",
+    "sinIp": "IP sin registrar"
+  },
+  "avisosArreglos": {
+    "sinLeerEstado": "Avisos: {n} sin leer"
+  },
+  "dispositivosArreglos": {
+    "truncada": "Se muestran las 100 sesiones más recientes; hay más que no caben en la lista."
   }
 }

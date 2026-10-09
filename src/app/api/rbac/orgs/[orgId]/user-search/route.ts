@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
-import { resolveRbac } from '@/rbac/resolve-permissions'
+import { rbacEnSucursal } from '@/rbac/en-sucursal'
 import { can } from '@/rbac/can'
 
 type Params = { params: Promise<{ orgId: string }> }
@@ -18,7 +18,8 @@ async function gate(request: Request, orgId: string) {
   if (isServiceAuth(request)) return { ok: true as const }
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) return { ok: false as const, status: 401, error: 'Unauthorized' }
-  const rbac = await resolveRbac(session.user.id, orgId)
+  // Sólo en las sucursales donde quien pregunta es miembro (ver `rbacEnSucursal`).
+  const rbac = await rbacEnSucursal(session.user.id, orgId)
   if (!can(rbac, 'member.invite')) return { ok: false as const, status: 403, error: 'Forbidden' }
   return { ok: true as const }
 }

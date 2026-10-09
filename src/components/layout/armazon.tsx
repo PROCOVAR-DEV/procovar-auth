@@ -9,6 +9,7 @@ import { Icon } from "@iconify/react";
 import { useTranslations, useLocale } from "next-intl";
 import { setLocale } from "@/server/locale.server";
 import { NotificationBell } from "@/components/layout/navbar/notification-bell";
+import { apartadoActivo } from "@/components/layout/apartado-activo";
 import type { Locale } from "@/i18n/config";
 
 export interface Persona {
@@ -117,6 +118,12 @@ export function Armazon({ persona, children }: { persona: Persona; children: Rea
         return true;
     });
 
+    // Uno solo encendido: el de href más largo (ver `apartado-activo.ts`).
+    const activo = apartadoActivo(
+        ruta,
+        visibles.map((a) => a.href),
+    );
+
     const barra = (
         <div className="pv-rail flex h-full w-56 shrink-0 flex-col">
             <div className="flex h-14 items-center gap-2.5 px-4">
@@ -132,10 +139,8 @@ export function Armazon({ persona, children }: { persona: Persona; children: Rea
                         href={a.href}
                         onClick={() => setAbierta(false)}
                         className="pv-rail-enlace"
-                        // Coincidencia exacta o de subruta con barra: con un
-                        // startsWith pelado, /profile se marcaría como activo
-                        // también en cualquier ruta que solo empiece igual.
-                        data-activo={a.href === "/" ? ruta === "/" : ruta === a.href || ruta.startsWith(`${a.href}/`)}
+                        data-activo={a.href === activo}
+                        aria-current={a.href === activo ? "page" : undefined}
                     >
                         <IconoDelEnlace icono={a.icono} />
                         <span className="truncate">{a.texto}</span>

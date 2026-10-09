@@ -5,6 +5,8 @@ import { Icon } from "@iconify/react";
 import { useTranslations } from "next-intl";
 import { Icons } from "@/components/icons/iconify";
 import { MiPerfilSecciones } from "@/components/profile/personal/mi-perfil-secciones";
+import { HistorialDeInicios } from "@/components/profile/personal/historial-de-inicios";
+import { SesionesYDispositivos } from "@/components/profile/personal/sesiones-y-dispositivos";
 
 interface User {
     id: string;
@@ -225,6 +227,13 @@ export function ProfileContent({ user, pertenencias, rol }: ProfileContentProps)
                     </Link>
                 ))}
             </div>
+
+            {/* Dónde está abierta la cuenta, con la actual marcada. Trae sus datos por su cuenta:
+                si falla, avisa dentro de su ficha y el resto de la pantalla sigue. */}
+            <SesionesYDispositivos />
+
+            {/* Cuándo y desde dónde se inició: trae sus datos por su cuenta, como la de arriba. */}
+            <HistorialDeInicios />
 
             <MiPerfilSecciones />
         </div>

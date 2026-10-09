@@ -55,13 +55,13 @@ const rol = (name: string) => ({
 })
 
 /** La persona tal y como la leen el exchange, `resolverIdentidad` Y `accesoDe` (una sola consulta falsa). */
-const laPersonaEs = (o: { porDefecto?: string; membresias?: string[]; admin?: boolean; llaves?: string[] } = {}) =>
+const laPersonaEs = (o: { porDefecto?: string; membresias?: string[]; admin?: boolean; llaves?: string[]; activo?: boolean } = {}) =>
     db.user.findUnique.mockResolvedValue({
         id: 'u1',
         name: 'Yasmani',
         email: 'y@procovar.local',
         username: 'yasmani',
-        activo: true,
+        activo: o.activo ?? true,
         isSystemAdmin: o.admin ?? false,
         defaultRole: o.llaves
             ? { name: 'A_MEDIDA', permissions: o.llaves.map((key) => ({ permission: { key } })) }
@@ -178,11 +178,11 @@ describe('entradas: lo que firman el exchange y el JWT de la APK', () => {
         for (const k of claims.entradas as string[]) expect(k).toMatch(/^[a-z]+\.entrar$/)
     })
 
-    it('el resto de campos del JWT no cambia: sólo se suma `entradas`', async () => {
+    it('el resto de campos del JWT no cambia: sólo se suman `entradas` e `iatms` (la hora de emisión en ms)', async () => {
         laPersonaEs({ porDefecto: 'LOGISTICO', membresias: ['LOGISTICO'] })
         const c = await porLaApk()
         expect(Object.keys(c).sort()).toEqual(
-            ['branch_id', 'email', 'entradas', 'exp', 'iat', 'iss', 'jti', 'name', 'purpose', 'role', 'roles', 'sid', 'sub', 'sucursal', 'sucursales'].sort(),
+            ['branch_id', 'email', 'entradas', 'exp', 'iat', 'iatms', 'iss', 'jti', 'name', 'purpose', 'role', 'roles', 'sid', 'sub', 'sucursal', 'sucursales'].sort(),
         )
         expect(c.role).toBe('LOGISTICO')
         expect(c.roles).toEqual(['LOGISTICO'])
@@ -210,6 +210,17 @@ describe('/api/auth/exchange repite la puerta', () => {
             expect.objectContaining({ action: 'auth.code.denied', clientId: 'reparto', userId: 'u1', meta: expect.objectContaining({ via: 'exchange' }) }),
         )
         expect(auditoria.audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.code.exchange' }))
+    })
+
+    it('una cuenta de BAJA (activo=false) no canjea, tenga la llave que tenga o sea administradora: 401 y no devuelve la sesión', async () => {
+        for (const p of [{ porDefecto: 'LOGISTICO', membresias: ['LOGISTICO'] }, { admin: true }, { llaves: ['delivery.entrar'] }]) {
+            laPersonaEs({ ...p, activo: false })
+            const r = await porExchange()
+            expect(r.status).toBe(401)
+            expect(r.body).toEqual({ error: 'invalid_or_expired_code' })
+        }
+        expect(betterAuth.getSession).not.toHaveBeenCalled()
+        expect(auditoria.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.code.denied', userId: 'u1' }))
     })
 
     it('CON la llave, y el administrador de sistema: todo igual que antes', async () => {

@@ -32,10 +32,11 @@ export function MiPerfilSecciones() {
             <h2 id="configurar-perfil-titulo" className="pv-titulo text-xl">
                 {t("nav.settings")}
             </h2>
-            {/* El editor toma sus valores iniciales de `user` al montarse. Al entrar
-                directo a /profile el usuario aún no ha llegado y quedaría con los
-                campos vacíos: con la `key` se vuelve a montar cuando llega. */}
-            <ProfileEditor key={user?.id ?? "cargando"} />
+            {/* El editor toma sus valores iniciales de `user` al montarse: se monta solo
+                cuando `user` existe. Montado antes quedaría con los campos vacíos, y si
+                `refreshUser` falla se quedaría así para siempre (y un «guardar» con
+                campos vacíos pisaría los datos). La `key` lo remonta si cambia la persona. */}
+            {user && <ProfileEditor key={user.id} />}
             <SecuritySection />
             <NotificationsSection />
         </section>

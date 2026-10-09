@@ -31,7 +31,7 @@ const bandeja = (data: InboxNotification[], failed = false) => ({ data, nextCurs
 
 const llamar = async (qs = '') => {
     const res = await GET(new Request(`http://x/api/notifications/panel${qs}`) as never)
-    return { status: res.status, body: await res.json() }
+    return { status: res.status, body: await res.json(), headers: res.headers }
 }
 
 beforeEach(() => {
@@ -92,5 +92,55 @@ describe('GET /api/notifications/panel', () => {
         const r = await llamar()
         expect(r.status).toBe(502)
         expect(r.body).toEqual({ error: 'avisos_no_disponible' })
+    })
+})
+
+describe('las respuestas son privadas: ni caché compartida ni del navegador', () => {
+    const esPrivada = (h: Headers) => {
+        expect(h.get('cache-control')).toBe('private, no-store')
+        expect(h.get('vary')).toBe('Cookie')
+    }
+
+    it('200', async () => {
+        notify.fetchInbox.mockResolvedValue(bandeja(lista(3)))
+        const r = await llamar()
+        expect(r.status).toBe(200)
+        esPrivada(r.headers)
+    })
+
+    it('401 sin sesión', async () => {
+        sesion.resolveSessionUser.mockResolvedValue(null)
+        const r = await llamar()
+        expect(r.status).toBe(401)
+        esPrivada(r.headers)
+    })
+
+    it('502 con Notify caído', async () => {
+        notify.fetchInbox.mockResolvedValue(bandeja([], true))
+        const r = await llamar()
+        expect(r.status).toBe(502)
+        esPrivada(r.headers)
+    })
+})
+
+describe('lo que viaja al navegador: recortado y con la forma segura', () => {
+    it('sin destinatario, sin token suelto ni ids: solo lo que se pinta y el destino ya calculado', async () => {
+        const conToken = aviso(1)
+        conToken.payload = { title: 'En curso', kind: 'reservation', reservationId: 'R1', resumeToken: 'jwt.firmado', reservationIds: ['R1'] }
+        notify.fetchInbox.mockResolvedValue(bandeja([conToken]))
+        const r = await llamar()
+        const [n] = r.body.notifications
+        expect(n).not.toHaveProperty('recipientUserId')
+        expect(n.href).toBe('/booking?secure=jwt.firmado')
+        expect(JSON.stringify(n.payload)).not.toMatch(/resumeToken|jwt\.firmado|reservationId/)
+    })
+
+    it.each([null, [], 7, { code: { x: 1 }, propertyName: 5, reservationIds: 5 }])('payload %j: 200 sin lanzar', async (raro) => {
+        const a = aviso(1)
+        a.payload = raro as never
+        notify.fetchInbox.mockResolvedValue(bandeja([a, null as never]))
+        const r = await llamar()
+        expect(r.status).toBe(200)
+        expect(r.body.notifications).toHaveLength(1)
     })
 })

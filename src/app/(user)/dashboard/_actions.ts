@@ -5,13 +5,22 @@ import { getCurrentUser } from "@/server/auth.server";
 import { revalidatePath } from "next/cache";
 import { getRedis } from "@/lib/redis";
 import { audit } from "@/lib/audit";
+import { logger } from "@/lib/logger";
 import { altaPersona } from "@/lib/alta-persona";
 import { rbacEnSucursal, rolesEnSucursal } from "@/rbac/en-sucursal";
 import { can } from "@/rbac/can";
 import { puedeRepartirRol } from "@/rbac/escalafon";
 import { systemRolePermissionKeys } from "@/rbac/system-roles";
 import { hashPassword } from "better-auth/crypto";
+import { cerrarTodasLasFamiliasDe } from "@/lib/apk-tokens";
 import { esSuperAdmin } from "@/lib/alta-persona";
+import {
+    personasConRol,
+    personasDeLaSucursal,
+    publicarPermisosCambiados,
+    publicarSesionCerrada,
+} from "@/lib/eventos-de-sesion";
+import { pierdeLlaves, sucursalPierdeAcceso } from "@/lib/pierde-acceso";
 
 async function requireAdmin() {
     const { data: user } = await getCurrentUser();
@@ -128,6 +137,8 @@ export async function anadirPersona(datos: {
                 cuentaNueva: !res.yaExistia,
             },
         });
+        // Un alta sólo da acceso: no se publica nada (ver `lib/pierde-acceso.ts`). Si no, quien puede
+        // dar de alta podría echar de todas las aplicaciones a quien quisiera "dándole de alta".
         revalidatePath("/dashboard");
         return { yaExistia: res.yaExistia };
     } catch (e) {
@@ -206,6 +217,7 @@ export async function agregarMiembro(datos: {
                 create: { memberId: ya.id, roleId },
                 update: {},
             });
+            // Sólo se le AÑADE un rol: gana acceso, no se publica nada.
             revalidatePath("/dashboard");
             return { yaEstaba: true, rol: rol.name };
         }
@@ -226,6 +238,7 @@ export async function agregarMiembro(datos: {
             userId: actor.id,
             meta: { sucursal: datos.organizationId, persona: datos.userId },
         });
+        // Alta de membresía: sólo gana acceso, no se publica nada.
         revalidatePath("/dashboard");
         return { rol: rol.name };
     } catch (e) {
@@ -257,7 +270,12 @@ export async function restablecerPermisosDelRol(roleId: string): Promise<{ error
 
         const permisos = await prisma.permission.findMany({
             where: { key: { in: claves }, isDeprecated: false },
-            select: { id: true },
+            select: { id: true, key: true },
+        });
+        // Lo que tenía ANTES: sólo se avisa si el restablecimiento le quita alguna llave.
+        const tenia = await prisma.rolePermission.findMany({
+            where: { roleId },
+            select: { permission: { select: { key: true } } },
         });
         await prisma.$transaction([
             prisma.rolePermission.deleteMany({ where: { roleId } }),
@@ -273,6 +291,10 @@ export async function restablecerPermisosDelRol(roleId: string): Promise<{ error
             userId: actor.id,
             meta: { rol: rol.name, permisos: permisos.length },
         });
+        const teniaClaves = tenia.map((t) => t.permission?.key).filter((k): k is string => Boolean(k));
+        if (pierdeLlaves(teniaClaves, permisos.map((p) => p.key))) {
+            await publicarPermisosCambiados(await personasConRol(roleId), "llaves");
+        }
         revalidatePath("/dashboard/permissions");
         return { permisos: permisos.length };
     } catch (e) {
@@ -286,6 +308,8 @@ export async function toggleUserAdmin(userId: string, makeAdmin: boolean): Promi
         if (admin.id === userId && !makeAdmin) return { error: "No puedes quitarte los permisos de admin" };
         await prisma.user.update({ where: { id: userId }, data: { isSystemAdmin: makeAdmin } });
         audit({ action: "user.admin", resource: userId, userId: admin.id, meta: { ahoraEsSuperAdmin: makeAdmin } });
+        // Dar el mando sólo da acceso; quitarlo, lo quita.
+        if (!makeAdmin) await publicarPermisosCambiados([userId], "admin");
         revalidatePath("/dashboard");
         return {};
     } catch (e) {
@@ -313,6 +337,7 @@ export async function adminDeleteUser(userId: string): Promise<{ error?: string 
         const victima = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
         await prisma.user.delete({ where: { id: userId } });
         audit({ action: "user.delete", resource: userId, userId: admin.id, meta: { correo: victima?.email } });
+        await publicarSesionCerrada([userId], "baja");
         revalidatePath("/dashboard");
         return {};
     } catch (e) {
@@ -377,10 +402,22 @@ export async function cambiarContrasena(
             });
         }
 
+        // `expiresAt` además de `revokedAt`: sin ella sólo las rutas que miran `revokedAt` la tratarían como cerrada.
+        const ahora = new Date();
         const { count } = await prisma.session.updateMany({
             where: { userId, revokedAt: null },
-            data: { revokedAt: new Date() },
+            data: { revokedAt: ahora, expiresAt: ahora },
         });
+        // Y los refresh de la APK y del escritorio: `renovar` no mira las sesiones, y un refresh robado valdría 30 días.
+        // Si falla, la clave YA cambió y las sesiones ya están cerradas: se deja dicho y se avisa igualmente (sin datos personales).
+        try {
+            await cerrarTodasLasFamiliasDe(userId);
+        } catch (e) {
+            logger.error("[dashboard] no se pudieron cerrar los refresh tras cambiar la contraseña", {
+                userId,
+                error: e instanceof Error ? e.name : "desconocido",
+            });
+        }
 
         audit({
             action: "member.password.reset",
@@ -388,6 +425,7 @@ export async function cambiarContrasena(
             userId: actor.id,
             meta: { sesionesCerradas: count },
         });
+        await publicarSesionCerrada([userId], "revocada");
         revalidatePath("/dashboard");
         return { sesionesCerradas: count };
     } catch (e) {
@@ -411,9 +449,18 @@ export async function cambiarRol(
 
         const rol = await prisma.role.findUnique({
             where: { id: roleId },
-            select: { id: true, name: true },
+            select: { id: true, name: true, permissions: { select: { permission: { select: { key: true } } } } },
         });
         if (!rol) return { error: "Ese rol no existe." };
+
+        // Lo que tenía ANTES, para avisar sólo si lo pierde (ver `lib/pierde-acceso.ts`).
+        const previo = await prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                isSystemAdmin: true,
+                defaultRole: { select: { permissions: { select: { permission: { select: { key: true } } } } } },
+            },
+        });
 
         const mandaEnTodo = esSuperAdmin(rol.name);
         await prisma.user.update({
@@ -428,6 +475,10 @@ export async function cambiarRol(
         });
 
         audit({ action: "member.role.change", resource: userId, userId: actor.id, meta: { rol: rol.name } });
+        const pierde =
+            Boolean(previo?.isSystemAdmin && !mandaEnTodo) ||
+            pierdeLlaves(previo?.defaultRole ? clavesDe(previo.defaultRole) : [], clavesDe(rol));
+        if (pierde) await publicarPermisosCambiados([userId], "rol");
         revalidatePath("/dashboard");
         return { rol: rol.name };
     } catch (e) {
@@ -460,10 +511,16 @@ export async function listUserSessions(
 export async function revokeUserSession(sessionId: string): Promise<{ error?: string }> {
     try {
         const admin = await requireAdmin();
-        await prisma.session.update({ where: { id: sessionId }, data: { revokedAt: new Date() } });
+        const ahora = new Date();
+        const sesion = await prisma.session.update({
+            where: { id: sessionId },
+            data: { revokedAt: ahora, expiresAt: ahora }, // expiresAt: ver `cambiarContrasena`
+            select: { userId: true },
+        });
 
         const redis = getRedis("sessions");
         await redis.set(`session:revoked:${sessionId}`, "1", "EX", 60 * 60 * 24);
+        await publicarSesionCerrada([sesion.userId], "revocada");
 
         audit({
             action: "session.revoke",
@@ -481,7 +538,8 @@ export async function revokeUserSession(sessionId: string): Promise<{ error?: st
 export async function revokeAllUserSessions(userId: string): Promise<{ error?: string }> {
     try {
         const admin = await requireAdmin();
-        const r = await prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+        const ahora = new Date();
+        const r = await prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: ahora, expiresAt: ahora } }); // expiresAt: ver `cambiarContrasena`
 
         const ids = (await prisma.session.findMany({ where: { userId }, select: { id: true } })).map((s) => s.id);
         if (ids.length) {
@@ -490,6 +548,7 @@ export async function revokeAllUserSessions(userId: string): Promise<{ error?: s
             for (const id of ids) pipe.set(`session:revoked:${id}`, "1", "EX", 60 * 60 * 24);
             await pipe.exec();
         }
+        await publicarSesionCerrada([userId], "revocada");
 
         audit({
             action: "session.revoke",
@@ -534,6 +593,7 @@ export async function removeOrgMember(memberId: string): Promise<{ error?: strin
         }
 
         await prisma.member.delete({ where: { id: memberId } });
+        await publicarPermisosCambiados([member.userId], "membresia");
         audit({
             action: "member.remove",
             resource: memberId,
@@ -592,6 +652,8 @@ export async function setOrgMemberRoles(memberId: string, roleIds: string[]): Pr
             userId: actor.id,
             meta: { roles: roleIds.length },
         });
+        // Sólo si se le QUITA algún rol; añadir roles sólo da acceso.
+        if (toRemove.length) await publicarPermisosCambiados([member.userId], "rol");
         revalidatePath("/dashboard");
         return {};
     } catch (e) {
@@ -780,6 +842,13 @@ export async function updateOrganizationAdmin(
             return { error: "Marca cuál es el almacén principal" };
         }
 
+        // Cómo estaba ANTES: «Editar sucursal» manda siempre `codigo` y `activa`, así que la presencia
+        // del campo no dice nada; sólo se avisa si de verdad se desactiva o cambia el código.
+        const antes = await prisma.organization.findUnique({
+            where: { id: orgId },
+            select: { activa: true, codigo: true },
+        });
+
         const patch: Record<string, unknown> = {};
         for (const k of [
             "name", "slug", "logo", "codigo", "activa", "timezone", "telefono",
@@ -823,6 +892,17 @@ export async function updateOrganizationAdmin(
             }
             throw err;
         }
+        // `activa` y `codigo` deciden las sucursales que lleva el acceso de cada persona
+        // (`resolverIdentidad`); el resto de campos no cambia lo que una aplicación sabe de ellas.
+        if (
+            antes &&
+            sucursalPierdeAcceso(antes, {
+                activa: typeof patch.activa === "boolean" ? patch.activa : antes.activa,
+                codigo: patch.codigo === undefined ? antes.codigo : (patch.codigo as string | null),
+            })
+        ) {
+            await publicarPermisosCambiados(await personasDeLaSucursal(orgId), "membresia");
+        }
         revalidatePath("/dashboard");
         return {};
     } catch (e) {
@@ -833,7 +913,10 @@ export async function updateOrganizationAdmin(
 export async function deleteOrganizationAdmin(orgId: string): Promise<{ error?: string }> {
     try {
         await requireAdmin();
+        // Sus miembros se borran en cascada con ella: hay que apuntarlos ANTES.
+        const personas = await personasDeLaSucursal(orgId, { lanzar: true }); // si falla, que no se borre sin avisar
         await prisma.organization.delete({ where: { id: orgId } });
+        await publicarPermisosCambiados(personas, "membresia");
         revalidatePath("/dashboard");
         return {};
     } catch (e) {

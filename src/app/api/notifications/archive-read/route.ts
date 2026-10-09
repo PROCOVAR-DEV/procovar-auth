@@ -5,7 +5,7 @@
  */
 import { NextResponse } from "next/server";
 import { archiveAllRead } from "@/lib/notify/inbox";
-import { requireSessionUserId } from "../_ownership";
+import { avisosNoDisponible, privada, requireSessionUserId } from "../_ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -14,5 +14,5 @@ export async function POST() {
     if (userId instanceof NextResponse) return userId;
 
     const ok = await archiveAllRead(userId);
-    return NextResponse.json({ ok }, { status: ok ? 200 : 502 });
+    return ok ? privada(NextResponse.json({ ok })) : avisosNoDisponible();
 }

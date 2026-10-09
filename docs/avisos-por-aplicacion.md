@@ -111,7 +111,7 @@ Lo decide **el emisor**, uno por uno:
 | Qué | Dónde | Estado |
 |---|---|---|
 | Ver los últimos avisos | **Campana de la cabecera → panel emergente** (5 por página, «Página X de Y», botón «Gestionar avisos»). Datos: `GET /api/notifications/panel`, que toma el id de la **sesión** y pide la bandeja `IN_APP` a Notify. | hecho hoy (08/10/2026) |
-| Ver todos, leer, archivar | `/profile/notifications` y `/profile/notifications/[id]` (filtros sin leer / todos / archivados) | existe |
+| Ver todos, leer, archivar, **marcar todo como leído** | `/profile/notifications` y `/profile/notifications/[id]` (filtros sin leer / todos / archivados). «Marcar todo» marca de una en una, hasta 50 por pulsación y 5 a la vez, y avisa si alguna falla | existe |
 | Configurar qué quiero recibir | `NotificationsSection`, en `/profile#configurar-perfil`: correo, confirmaciones de reserva, facturas, avisos de servicio, marketing | **de adorno**: solo `localStorage` (`useProfileDataStore`); no llama a Notify |
 | Preferencias reales (Notify) | `GET/PUT /v1/users/{userId}/preferences`: correo/push/SMS/pantalla | existe en Notify; **Accesos no la usa** |
 
@@ -124,11 +124,82 @@ Notas técnicas del panel:
 - Si Notify no contesta, el panel dice «No se pudieron cargar los avisos» con un botón de
   reintentar; no dice «No tienes avisos», que sería mentir. La cabecera y el resto de la página
   no se tocan.
-- El tiempo real (`/api/events`) lo sirve `QB_BACKEND_URL`, que es el backend de qb. Si en
-  Procovar no está configurado, la ruta responde 500 y la campana se actualiza sola por sondeo,
-  cada 60 s y al volver a la pestaña.
+- **No hay sondeo** (ver «Tiempo real» abajo): ni intervalo ni `EventSource`. El contador y la
+  lista se refrescan al montar, al volver a la pestaña, al abrir el panel y tras marcar leído.
 - `src/lib/notify/types.ts` (`NotifyType`, `notificationHref`) y el detalle de aviso conservan
   los tipos de qb (reservas, facturas, *holds*). Ninguno se emite en Procovar.
+
+Arreglos tras la revisión independiente de la campana (08/10/2026; el código está en
+`src/app/api/notifications/**` y `src/lib/notify/**`, con sus pruebas):
+
+- **Guard de propiedad con pruebas de ruta.** `_ownership.ts` ya tiene pruebas que simulan la
+  sesión y Notify y recorren `[id]`, `read`, `archive`, `unarchive`, `archive-read` y la lista:
+  401 sin sesión, aviso ajeno sin llamar a la acción de Notify, aviso propio 200. Cambiar el
+  `!==` por `===` pone en rojo más de veinte (se comprobó con una copia, no en el árbol).
+- **Un aviso ajeno contesta 404, igual que uno inexistente** (antes 403): un 403 le diría a
+  quien prueba ids cuáles existen y son de otra persona. **«Notify no contesta» es 502**, no 404
+  (`fetchNotification` distingue `found` / `not_found` / `failed`). Las acciones que fallan
+  en Notify contestan 502 con `{ error: "avisos_no_disponible" }` (antes `{ ok: false }`).
+- **La lista (`GET /api/notifications`) responde 502 si Notify cae**, como el panel, y filtra por
+  `recipientUserId`. El centro de avisos muestra «No se pudieron cargar los avisos» con
+  reintento, no «sin avisos».
+- **Todas las respuestas de `/api/notifications` son `private, no-store` + `Vary: Cookie`**
+  (`privada()` en `_ownership.ts`), también 401, 404 y 502.
+- **El servidor normaliza cada fila antes de responder** (`normalizar.ts`): el payload solo si es
+  objeto plano; `code`, `propertyName`, `checkIn`, `checkOut` solo si son texto; `notificationHref`
+  y `notificationColor` no lanzan con `null` ni tipos raros.
+- **Al navegador solo viaja lo que se pinta** (`AvisoVista`): título, cuerpo, nombre, código,
+  fechas, `role`/`kind` y el destino (`href`) YA calculado en el servidor. Ya no viajan
+  `recipientUserId`, los ids de reserva ni el `resumeToken` suelto (queda solo dentro del
+  `href` de «reserva en curso», que es lo que necesita el botón).
+- **El número no infravalora.** Si la lista llega al tope de 100, «sin leer» se dice como cota:
+  «100+» si están todos sin leer, «N+» si no (`etiquetaSinLeer`). La insignia de la campana
+  sigue topada en «9+».
+- **El detalle de un aviso lo marca leído UNA vez por id** y solo recarga si el POST dijo que
+  sí: antes, un POST fallido con un GET correcto repetía las dos peticiones sin pausa.
+- Accesibilidad: cada fila del centro se abre con un `<button>` (antes un `<div onClick>`), la
+  campana tiene una región `role="status"` con «Avisos: N sin leer» al cargar, el diálogo se
+  nombra con su `<h2>` (`aria-labelledby`), los textos con `line-clamp` llevan `break-words` y
+  el id del detalle se codifica en la ruta.
+- **Huérfanos, a decidir por Jose (no se tocaron):** `src/app/api/events/route.ts` y
+  `src/hooks/use-org-events.ts` (restos del centro de eventos de qb). La ruta usa un *bearer*
+  por defecto de desarrollo si falta `BEARER_TOKEN`, y reenvía un flujo SSE de `QB_BACKEND_URL`,
+  que no existe en Procovar. Mientras nadie los use, lo prudente es borrarlos; no los usa la
+  campana (hay una prueba que prohíbe `EventSource` ahí).
+
+### 1.6 Tiempo real
+
+**Hoy NO hay sondeo ni conexión permanente, a propósito** (Jose: «un reguero de
+peticiones»). Se quitaron el `setInterval` de 60 s y el `EventSource("/api/events")`; este
+último era el centro de eventos del backend de qb (`QB_BACKEND_URL`), que no existe en Procovar
+y respondía 500. Con la campana cerrada y la pestaña quieta no sale ni una petición.
+Se pide la lista:
+
+1. al montar la cabecera y al cambiar de página;
+2. al volver a la pestaña (`focus` y `visibilitychange`, como mucho una vez por segundo);
+3. al **abrir** el panel de la campana;
+4. tras marcar leído, marcar todo o archivar.
+
+Cuando toque hacerlo **por eventos** (los cinco pasos que dio la revisión):
+
+1. **Notify publica.** Al crear, leer o archivar una notificación `IN_APP`, el worker/la API
+   hace `PUBLISH` en Redis al canal `inbox:{appId}:{userId}` (un mensaje corto con el tipo de
+   cambio; sin contenido del aviso).
+2. **Notify sirve el flujo.** `GET /v1/inbox/stream?userId=…` (SSE), firmado con HMAC como el
+   resto de `/v1` y con scope `notifications:read`, suscrito a ese canal. Con latidos para que
+   los proxies no lo corten.
+3. **Accesos lo reenvía.** Ruta `GET /api/notifications/stream` que toma el `userId` **de la
+   sesión** (nunca de la petición, como `_ownership.ts`) y abre el flujo de Notify en el
+   servidor; la clave HMAC no llega al navegador.
+4. **El hook escucha.** `useNotifications` abre un `EventSource` a esa ruta, solo con la
+   campana montada y la pestaña visible, y llama a `refresh()` en cada mensaje. Se cierra al
+   ocultarse la pestaña.
+5. **Refresco al enfocar, que se queda.** Lo de arriba (volver a la pestaña y abrir el panel)
+   sigue como red de seguridad cuando el flujo se cae. Sigue **sin intervalo**: el respaldo
+   es un evento del usuario, no un reloj.
+
+Hasta entonces, un aviso nuevo aparece cuando la persona abre la campana o vuelve a la pestaña,
+no antes.
 
 ---
 

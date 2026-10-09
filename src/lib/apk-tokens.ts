@@ -50,6 +50,7 @@ import { prisma } from '@/lib/prisma';
 import { signJwt } from '@/lib/jwt';
 import { audit } from '@/lib/audit';
 import { logger } from '@/lib/logger';
+import { publicarSesionCerrada } from '@/lib/eventos-de-sesion';
 import { rolesFirmados, rolPrincipal } from '@/lib/roles-de-la-persona';
 import { accesoDe } from '@/lib/aplicaciones-visibles';
 import { comprobarEntrada, entradasDe } from '@/lib/puerta-de-entrada';
@@ -312,6 +313,11 @@ export async function firmarAcceso(identidad: Identidad, sessionId: string | nul
             // Siempre, aunque sea `[]`: ver `Identidad.entradas`. Siete cadenas como mucho.
             entradas: identidad.entradas,
             ...(sessionId ? { sid: sessionId } : {}),
+            // La hora de emisión en MILISEGUNDOS. `iat` va en segundos y las marcas de invalidación
+            // (`eventos-de-sesion.ts`) en ms: un token pedido 250 ms después del evento tenía `iat*1000`
+            // por debajo de la marca en ~el 75 % de los casos y se rechazaba (la APK renueva justo al
+            // recibir el aviso). El consumidor prefiere `iatms` y, si falta, usa `iat*1000`.
+            iatms: Date.now(),
             // Sin esto, dos accesos firmados dentro del mismo segundo con los
             // mismos datos salen IDÉNTICOS byte a byte: mismo `iat`, mismo `exp`
             // y HS256 es determinista. No es inseguro —el token sigue siendo
@@ -403,9 +409,11 @@ export async function revocarTodasLasSesiones(userId: string, motivo: string): P
     });
     await prisma.session.updateMany({
         where: { userId, revokedAt: null },
-        data: { revokedAt: ahora },
+        data: { revokedAt: ahora, expiresAt: ahora }, // expiresAt: ver `revoke-session/route.ts`
     });
     logger.warn('[apk-tokens] todas las sesiones revocadas', { userId, motivo });
+    // Un refresh robado: las aplicaciones tampoco pueden fiarse de lo que emitieron antes.
+    await publicarSesionCerrada([userId], 'revocada');
 }
 
 /**
@@ -656,7 +664,8 @@ async function emitirDesde(
         // renovando sin fallo, y el refresh de 30 días no habría servido de nada.
         if (fila.sessionId) {
             await prisma.session.updateMany({
-                where: { id: fila.sessionId },
+                // `revokedAt: null`: si la revocaron justo ahora, estirarla la resucitaría (su `expiresAt` es lo que la mata).
+                where: { id: fila.sessionId, revokedAt: null },
                 data: { expiresAt: new Date(Date.now() + SEGUNDOS_REFRESH * 1000) },
             });
         }
@@ -713,9 +722,37 @@ export async function cerrarFamilia(familyId: string): Promise<void> {
     if (dela?.sessionId) {
         await prisma.session.updateMany({
             where: { id: dela.sessionId, revokedAt: null },
-            data: { revokedAt: ahora },
+            data: { revokedAt: ahora, expiresAt: ahora },
         });
     }
+}
+
+/**
+ * Cierra TODAS las cadenas de refresh de una persona, y las sesiones que llevan ligadas. Es lo que hace
+ * falta al cambiarle o restablecerle la contraseña: `revokeSessions…` de better-auth sólo toca SUS sesiones,
+ * y `renovar` no las mira, así que un refresh robado de la APK o del escritorio sobrevivía 30 días al
+ * cambio. A partir de aquí `renovar` contesta `revoked` y quien trabaja vuelve a entrar con la clave nueva.
+ * No publica nada: el aviso lo da quien llama. Devuelve cuántos refresh cerró.
+ */
+export async function cerrarTodasLasFamiliasDe(userId: string): Promise<number> {
+    const ahora = new Date();
+    const vivas = await prisma.refreshToken.findMany({
+        where: { userId, revokedAt: null },
+        select: { sessionId: true },
+        distinct: ['sessionId'],
+    });
+    const { count } = await prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: ahora },
+    });
+    const sesiones = vivas.flatMap((r) => (r.sessionId ? [r.sessionId] : []));
+    if (sesiones.length > 0) {
+        await prisma.session.updateMany({
+            where: { userId, id: { in: sesiones }, revokedAt: null },
+            data: { revokedAt: ahora, expiresAt: ahora },
+        });
+    }
+    return count;
 }
 
 /**
@@ -736,6 +773,9 @@ export async function cerrarSesionDelAparato(raw: string, aparato?: DatosDelApar
     });
     if (!fila) return;
     await cerrarFamilia(fila.familyId);
+    // NO se publica ningún aviso (Jose, 08/10/2026: «la web es la web y las APK son la APK»): cerrar la
+    // sesión de ESTE aparato es cosa de este aparato; no debe cerrar las webs de la persona ni sus otros
+    // dispositivos. Los cortes que SÍ alcanzan al aparato son los de seguridad (`alcance: 'todo'`).
     audit({
         action: 'auth.apk.logout',
         userId: fila.userId,

@@ -46,8 +46,10 @@ const pintar = (props: Partial<PanelDeAvisosProps>) =>
 const boton = (html: string, etiqueta: string) =>
     html.match(new RegExp(`<button[^>]*aria-label="${etiqueta}"[^>]*>`))?.[0] ?? ''
 
-/** `disabled` como atributo (las clases `disabled:…` de Tailwind no cuentan). */
-const apagado = (etiqueta: string) => /\sdisabled(=""|\s|>)/.test(etiqueta)
+/** Apagado = `aria-disabled="true"`: el botón sigue enfocable (no usa `disabled`). */
+const apagado = (etiqueta: string) => /\saria-disabled="true"/.test(etiqueta)
+/** El atributo `disabled` de verdad (las clases `disabled:…` de Tailwind no cuentan). */
+const conDisabled = (etiqueta: string) => /\sdisabled(=""|\s|>)/.test(etiqueta)
 
 const cinco = [1, 2, 3, 4, 5].map((n) => aviso(n))
 
@@ -99,6 +101,45 @@ describe('PanelDeAvisos', () => {
         expect(apagado(boton(html, 'Página anterior'))).toBe(false)
     })
 
+    it('los botones de página nunca llevan `disabled`: ni en los bordes ni cargando (no pierden el foco)', () => {
+        for (const props of [
+            { avisos: cinco, page: 1, pageCount: 3 },
+            { avisos: cinco, page: 3, pageCount: 3 },
+            { avisos: cinco, page: 2, pageCount: 3, cargando: true },
+        ]) {
+            const html = pintar(props)
+            expect(conDisabled(boton(html, 'Página anterior'))).toBe(false)
+            expect(conDisabled(boton(html, 'Página siguiente'))).toBe(false)
+        }
+    })
+
+    it('cargando no apaga los botones por sí solo (solo los bordes)', () => {
+        const html = pintar({ avisos: cinco, page: 2, pageCount: 3, cargando: true })
+        expect(apagado(boton(html, 'Página anterior'))).toBe(false)
+        expect(apagado(boton(html, 'Página siguiente'))).toBe(false)
+    })
+
+    it('aria-live solo en «Página X de Y», no en toda la lista', () => {
+        const html = pintar({ avisos: cinco, page: 1, pageCount: 3 })
+        expect(html.match(/aria-live=/g)).toHaveLength(1)
+        expect(html).toMatch(/aria-live="polite"[^>]*>Página 1 de 3/)
+    })
+
+    it('«sin leer» es isUnread: estado SENT y sin readAt', () => {
+        // Leído por estado aunque falte readAt, y leído por readAt aunque el estado sea SENT.
+        const leidoPorEstado = aviso(1, { status: 'READ', readAt: null })
+        const leidoPorFecha = aviso(2, { status: 'SENT', readAt: new Date().toISOString() })
+        const sinLeer = aviso(3)
+        expect(pintar({ avisos: [leidoPorEstado] }).match(/Sin leer/g)).toBeNull()
+        expect(pintar({ avisos: [leidoPorFecha] }).match(/Sin leer/g)).toBeNull()
+        expect(pintar({ avisos: [sinLeer] }).match(/Sin leer/g)).toHaveLength(1)
+    })
+
+    it('un título que no es texto no tumba el panel', () => {
+        const raro = aviso(9, { payload: { title: 42, body: { x: 1 } } as never })
+        expect(() => pintar({ avisos: [raro] })).not.toThrow()
+    })
+
     it('con una sola página no hay paginación', () => {
         const html = pintar({ avisos: cinco, page: 1, pageCount: 1 })
         expect(html).not.toContain('Página 1 de 1')
@@ -115,5 +156,18 @@ describe('PanelDeAvisos', () => {
         const html = pintar({ avisos: [aviso(7)] })
         expect(html).toContain('Titulo 7')
         expect(html).toContain('Cuerpo 7')
+    })
+
+    it('el <h2> lleva el id que el diálogo usa en aria-labelledby', () => {
+        expect(pintar({ tituloId: 'campana-titulo' })).toMatch(/<h2 id="campana-titulo"[^>]*>Avisos<\/h2>/)
+    })
+
+    it('«100+»: el texto de sin leer manda sobre el número', () => {
+        const html = pintar({ avisos: [aviso(1)], sinLeer: 100, sinLeerTexto: '100+' })
+        expect(html).toContain('100+ sin leer')
+    })
+
+    it('el cuerpo con line-clamp no desborda: break-words', () => {
+        expect(pintar({ avisos: [aviso(1)] })).toMatch(/line-clamp-2[^"]*break-words/)
     })
 })

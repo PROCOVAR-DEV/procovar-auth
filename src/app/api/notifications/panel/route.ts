@@ -13,7 +13,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchInbox } from "@/lib/notify/inbox";
 import { PANEL_FETCH_LIMIT, paginarAvisos, parsePagina } from "@/lib/notify/panel";
 import type { InboxResponse } from "@/lib/notify/types";
-import { requireSessionUserId } from "../_ownership";
+import { normalizarFilas, vistaDeAviso } from "@/lib/notify/normalizar";
+import { avisosNoDisponible, privada, requireSessionUserId } from "../_ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +26,13 @@ export async function GET(request: NextRequest) {
 
     const inbox = await fetchInbox({ userId, limit: PANEL_FETCH_LIMIT });
     if (inbox.failed) {
-        return NextResponse.json({ error: "avisos_no_disponible" }, { status: 502 });
+        return avisosNoDisponible();
     }
 
-    const suyos = inbox.data.filter((n) => n.recipientUserId === userId);
-    const body: InboxResponse = { ...paginarAvisos(suyos, pagina), nextCursor: null };
-    return NextResponse.json(body);
+    // Primero la forma segura (el payload es de otro servicio), luego la página, y al
+    // navegador solo lo que se pinta.
+    const suyos = normalizarFilas(inbox.data.filter((n) => n?.recipientUserId === userId));
+    const { notifications, ...resto } = paginarAvisos(suyos, pagina);
+    const body: InboxResponse = { ...resto, notifications: notifications.map(vistaDeAviso), nextCursor: null };
+    return privada(NextResponse.json(body));
 }

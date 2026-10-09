@@ -6,7 +6,7 @@
  * que el contador de no leídos cuente TODA la lista y no solo lo que cabe en pantalla.
  */
 import { describe, it, expect } from 'vitest'
-import { PANEL_PAGE_SIZE, paginarAvisos, parsePagina } from '../panel'
+import { PANEL_PAGE_SIZE, paginaDestino, paginarAvisos, parsePagina } from '../panel'
 import type { InboxNotification } from '../types'
 
 const aviso = (n: number, extra: Partial<InboxNotification> = {}): InboxNotification => ({
@@ -95,5 +95,22 @@ describe('paginarAvisos', () => {
         const r = paginarAvisos([vencida, aviso(2)], 1)
         expect(ids(r)).toEqual(['a2'])
         expect(r.total).toBe(1)
+    })
+})
+
+describe('paginaDestino (los botones de página no se apagan: en el borde no hacen nada)', () => {
+    it('en medio, anterior y siguiente llevan a la vecina', () => {
+        expect(paginaDestino(2, 3, -1)).toBe(1)
+        expect(paginaDestino(2, 3, 1)).toBe(3)
+    })
+
+    it('en la primera, anterior no lleva a ningún sitio; en la última, siguiente tampoco', () => {
+        expect(paginaDestino(1, 3, -1)).toBeNull()
+        expect(paginaDestino(3, 3, 1)).toBeNull()
+    })
+
+    it('con una sola página, ninguno de los dos', () => {
+        expect(paginaDestino(1, 1, -1)).toBeNull()
+        expect(paginaDestino(1, 1, 1)).toBeNull()
     })
 })

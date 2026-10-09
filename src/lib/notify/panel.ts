@@ -31,7 +31,7 @@ export const paginarAvisos = (
     todos: InboxNotification[],
     pedida: number,
     tamano: number = PANEL_PAGE_SIZE,
-): Required<Pick<InboxResponse, "notifications" | "unreadCount" | "page" | "pageCount" | "total">> => {
+): { notifications: InboxNotification[] } & Required<Pick<InboxResponse, "unreadCount" | "page" | "pageCount" | "total">> => {
     const vivos = dropStaleHolds(todos.filter((n) => !n.archivedAt));
     const pageCount = Math.max(1, Math.ceil(vivos.length / tamano));
     const page = Math.min(Math.max(1, pedida), pageCount);
@@ -42,4 +42,26 @@ export const paginarAvisos = (
         total: vivos.length,
         unreadCount: vivos.filter(isUnread).length,
     };
+};
+
+/**
+ * A qué página lleva «anterior» (`delta` -1) o «siguiente» (+1) desde `page`, o `null` si
+ * ya está en el borde. Los botones de página NO se apagan con `disabled` (un botón que se
+ * apaga mientras tiene el foco lo pierde y el teclado se queda sin sitio): quedan con
+ * `aria-disabled` y su pulsación no hace nada porque aquí sale `null`.
+ */
+export const paginaDestino = (page: number, pageCount: number, delta: -1 | 1): number | null => {
+    const destino = page + delta;
+    return destino >= 1 && destino <= pageCount ? destino : null;
+};
+
+/**
+ * Cuántos sin leer decir. Notify solo da los `PANEL_FETCH_LIMIT` más recientes: si la
+ * lista llega a ese tope puede haber más de los que se ven, y un número exacto infravaloraría.
+ * Entonces es una cota inferior: «N+» (o «100+» si ya están todos sin leer). Nunca un número
+ * que parezca exacto cuando no lo es.
+ */
+export const etiquetaSinLeer = (sinLeer: number, total: number, tope: number = PANEL_FETCH_LIMIT): string => {
+    if (total < tope) return String(sinLeer);
+    return sinLeer >= tope ? `${tope}+` : `${sinLeer}+`;
 };

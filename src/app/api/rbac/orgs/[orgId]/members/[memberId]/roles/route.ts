@@ -8,6 +8,7 @@ import { can } from '@/rbac/can'
 import { puedeRepartirRol } from '@/rbac/escalafon'
 import { PRECEDENCE, ROL_MINIMO } from '@/rbac/system-roles'
 import type { ResolvedRbac } from '@/rbac/types'
+import { publicarPermisosCambiados } from '@/lib/eventos-de-sesion'
 
 type Params = { params: Promise<{ orgId: string; memberId: string }> }
 
@@ -41,7 +42,7 @@ export async function PUT(request: Request, { params }: Params) {
   }
 
   // Ensure the member actually belongs to the org in the path (prevents cross-org IDOR).
-  const member = await prisma.member.findUnique({ where: { id: memberId }, select: { organizationId: true } })
+  const member = await prisma.member.findUnique({ where: { id: memberId }, select: { organizationId: true, userId: true } })
   if (!member || member.organizationId !== orgId) {
     return NextResponse.json({ error: 'Member not found' }, { status: 404 })
   }
@@ -75,6 +76,8 @@ export async function PUT(request: Request, { params }: Params) {
     }
   }
 
+  // Los roles que tenía ANTES: sólo se avisa si se le quita alguno.
+  const tenia = await prisma.memberRole.findMany({ where: { memberId }, select: { roleId: true } })
   await prisma.$transaction(async (tx) => {
     await tx.memberRole.deleteMany({ where: { memberId } })
     for (const roleId of valid) {
@@ -87,5 +90,7 @@ export async function PUT(request: Request, { params }: Params) {
     const principal = PRECEDENCE.find((p) => names.includes(p)) ?? names[0] ?? ROL_MINIMO
     await tx.member.update({ where: { id: memberId }, data: { role: principal } })
   })
+  // Añadir roles sólo da acceso: no se publica nada.
+  if (tenia.some((t) => !valid.includes(t.roleId))) await publicarPermisosCambiados([member.userId], 'rol')
   return NextResponse.json({ ok: true })
 }

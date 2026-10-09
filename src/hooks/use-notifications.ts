@@ -4,16 +4,40 @@
  * Reads the inbox through our own /api/notifications routes — never QB Notify
  * directly: the HMAC key is application-scoped and stays on the server. Note
  * that no userId is sent anywhere below; the server takes it from the session.
+ *
+ * SIN SONDEO. No hay `setInterval` ni `EventSource`: la lista y el contador se
+ * refrescan al montar, al cambiar de página/filtro, al volver a la pestaña
+ * (foco o visibilidad), cuando el componente llama a `refresh()` (la campana lo
+ * hace al abrir el panel) y tras cada acción (marcar leído, archivar). Jose no
+ * quiere un reguero de peticiones por detrás. Cuando toque hacerlo por eventos,
+ * ver «Tiempo real» en docs/avisos-por-aplicacion.md.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { InboxFilter, InboxNotification, InboxResponse } from "@/lib/notify/types";
+import { marcarVarios, type ResultadoMarcar } from "@/lib/notify/marcar-varios";
+import type { AvisoVista, InboxFilter, InboxResponse } from "@/lib/notify/types";
 
-const POLL_MS = 60_000;
+/** Volver a la pestaña dispara `focus` y `visibilitychange` a la vez: una sola petición. */
+const REFRESCO_MIN_MS = 1_000;
+
+type Accion = "read" | "archive" | "unarchive";
+
+/** POST de una acción sobre un aviso. Nunca lanza: `false` si algo falló. */
+const accionar = async (id: string, accion: Accion): Promise<boolean> => {
+    try {
+        const res = await fetch(`/api/notifications/${encodeURIComponent(id)}/${accion}`, {
+            method: "POST",
+            credentials: "include",
+        });
+        return res.ok;
+    } catch {
+        return false;
+    }
+};
 
 interface UseNotificationsOptions {
     filter?: InboxFilter;
     limit?: number;
-    /** Poll + refresh on window focus. The bell wants this; a detail page doesn't. */
+    /** Refresca al volver a la pestaña (foco / visibilidad). La campana lo quiere; una página de detalle no. */
     live?: boolean;
     /** Si se pasa, pide esa página al panel paginado (/api/notifications/panel) en vez de `filter`/`limit`. */
     page?: number;
@@ -26,18 +50,21 @@ export interface PageInfo {
 }
 
 export function useNotifications({ filter = "all", limit = 20, live = false, page }: UseNotificationsOptions = {}) {
-    const [notifications, setNotifications] = useState<InboxNotification[]>([]);
+    const [notifications, setNotifications] = useState<AvisoVista[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
     const [loading, setLoading] = useState(true);
     // El servicio de avisos no contestó: distinto de «no hay avisos».
     const [error, setError] = useState(false);
     const [pending, setPending] = useState<string | null>(null);
+    const [markingAll, setMarkingAll] = useState(false);
     // Avoids a slow response for a filter the user already left overwriting the new one.
     const requestId = useRef(0);
+    const lastRefresh = useRef(0);
 
-    const refresh = useCallback(async () => {
+    const load = useCallback(async () => {
         const current = ++requestId.current;
+        lastRefresh.current = Date.now();
         try {
             const url =
                 page === undefined
@@ -59,70 +86,60 @@ export function useNotifications({ filter = "all", limit = 20, live = false, pag
         }
     }, [filter, limit, page]);
 
+    // Todo lo que corre FUERA de un render (focus, acciones, la campana) llama a la
+    // versión más reciente de `load` a través de este ref: si capturara la suya, tras un
+    // cambio de página seguiría pidiendo la página vieja.
+    const loadRef = useRef(load);
+    useEffect(() => {
+        loadRef.current = load;
+    }, [load]);
+    const refresh = useCallback(() => loadRef.current(), []);
+
     useEffect(() => {
         setLoading(true);
-        void refresh();
-    }, [refresh]);
+        void load();
+    }, [load]);
 
-    /**
-     * Tiempo real. qb-back publica un evento en el canal personal del usuario cada vez
-     * que le nace una notificación o le cambia una reserva; aquí se escucha y se
-     * refresca al instante, en todas las pestañas abiertas a la vez.
-     *
-     * El poll se queda, pero como RED DE SEGURIDAD, no como mecanismo principal: si el
-     * SSE se cae (proxy, red, el navegador congela la pestaña), la campana sigue
-     * actualizándose sola. EventSource ya reconecta por su cuenta.
-     */
     useEffect(() => {
         if (!live) return;
-
-        const interval = setInterval(() => void refresh(), POLL_MS);
-        const onFocus = () => void refresh();
-        window.addEventListener("focus", onFocus);
-
-        // Sin orgId: es el canal personal (la campana). El servidor saca el userId de la
-        // sesión — nunca se manda desde aquí.
-        const es = new EventSource("/api/events");
-        es.onmessage = (ev) => {
-            try {
-                const data = JSON.parse(ev.data) as { type?: string };
-                if (data.type === "notification" || data.type === "reservation") void refresh();
-            } catch {
-                // Un evento ilegible no debe tumbar el stream.
-            }
+        const alVolver = () => {
+            if (document.visibilityState !== "visible") return;
+            if (Date.now() - lastRefresh.current < REFRESCO_MIN_MS) return;
+            void loadRef.current();
         };
-        // onerror: no cerramos nada — EventSource reintenta solo, y el poll cubre el hueco.
-
+        window.addEventListener("focus", alVolver);
+        document.addEventListener("visibilitychange", alVolver);
         return () => {
-            clearInterval(interval);
-            window.removeEventListener("focus", onFocus);
-            es.close();
+            window.removeEventListener("focus", alVolver);
+            document.removeEventListener("visibilitychange", alVolver);
         };
-    }, [live, refresh]);
+    }, [live]);
 
-    const act = useCallback(
-        async (id: string, action: "read" | "archive" | "unarchive") => {
-            setPending(id);
-            try {
-                const res = await fetch(`/api/notifications/${encodeURIComponent(id)}/${action}`, {
-                    method: "POST",
-                    credentials: "include",
-                });
-                if (!res.ok) return false;
-                await refresh();
-                return true;
-            } catch {
-                return false;
-            } finally {
-                setPending(null);
-            }
-        },
-        [refresh],
-    );
+    const act = useCallback(async (id: string, accion: Accion) => {
+        setPending(id);
+        try {
+            const ok = await accionar(id, accion);
+            if (ok) await loadRef.current();
+            return ok;
+        } finally {
+            setPending(null);
+        }
+    }, []);
 
     const markRead = useCallback((id: string) => act(id, "read"), [act]);
     const archive = useCallback((id: string) => act(id, "archive"), [act]);
     const unarchive = useCallback((id: string) => act(id, "unarchive"), [act]);
+
+    /** Marca leídos estos avisos (tope y paralelismo en `marcarVarios`) y refresca UNA vez. */
+    const markAllRead = useCallback(async (ids: string[]): Promise<ResultadoMarcar> => {
+        setMarkingAll(true);
+        try {
+            return await marcarVarios(ids, (id) => accionar(id, "read"));
+        } finally {
+            await loadRef.current();
+            setMarkingAll(false);
+        }
+    }, []);
 
     const archiveAllRead = useCallback(async () => {
         try {
@@ -131,12 +148,26 @@ export function useNotifications({ filter = "all", limit = 20, live = false, pag
                 credentials: "include",
             });
             if (!res.ok) return false;
-            await refresh();
+            await loadRef.current();
             return true;
         } catch {
             return false;
         }
-    }, [refresh]);
+    }, []);
 
-    return { notifications, unreadCount, loading, error, pageInfo, pending, refresh, markRead, archive, unarchive, archiveAllRead };
+    return {
+        notifications,
+        unreadCount,
+        loading,
+        error,
+        pageInfo,
+        pending,
+        markingAll,
+        refresh,
+        markRead,
+        markAllRead,
+        archive,
+        unarchive,
+        archiveAllRead,
+    };
 }

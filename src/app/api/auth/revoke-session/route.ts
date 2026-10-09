@@ -12,9 +12,11 @@ import { withServiceAuth } from '@/lib/with-service-auth';
 import { prisma } from '@/lib/prisma';
 import { getRedis } from '@/lib/redis';
 import { audit } from '@/lib/audit';
+import { publicarSesionCerrada } from '@/lib/eventos-de-sesion';
 
+// Tope de longitud: el `userId` acaba en la clave de Redis y en el mensaje que reciben TODAS las aplicaciones.
 const BodySchema = z
-    .object({ sessionId: z.string().optional(), userId: z.string().optional() })
+    .object({ sessionId: z.string().min(1).max(128).optional(), userId: z.string().min(1).max(128).optional() })
     .refine((d) => !!(d.sessionId || d.userId), { message: 'Provide sessionId or userId' });
 
 export const POST = withServiceAuth(async (req: NextRequest, ctx) => {
@@ -24,22 +26,30 @@ export const POST = withServiceAuth(async (req: NextRequest, ctx) => {
     if (!parsed.success) return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
 
     const now = new Date();
+    // `expiresAt = now` además de `revokedAt`: better-auth no conoce `revokedAt`, y caducarla es lo que hace que
+    // `getSession` dé null en TODAS las rutas (callback, exchange, organizaciones, rbac…), no sólo en las que lo miran.
+    const revocada = { revokedAt: now, expiresAt: now };
     let count = 0;
     const ids: string[] = [];
+    let persona: string | null = null; // de quién eran las sesiones
 
     if (parsed.data.sessionId) {
         const r = await prisma.session.update({
             where: { id: parsed.data.sessionId },
-            data: { revokedAt: now },
-            select: { id: true },
+            data: revocada,
+            select: { id: true, userId: true },
         }).catch(() => null);
-        if (r) { count = 1; ids.push(r.id); }
+        if (r) { count = 1; ids.push(r.id); persona = r.userId; }
     } else if (parsed.data.userId) {
+        // Que la persona exista ANTES de revocar y de publicar: un id inventado no llega a las aplicaciones.
+        const existe = await prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { id: true } });
+        if (!existe) return NextResponse.json({ error: 'user_not_found' }, { status: 404 });
         const r = await prisma.session.updateMany({
             where: { userId: parsed.data.userId, revokedAt: null },
-            data: { revokedAt: now },
+            data: revocada,
         });
         count = r.count;
+        persona = parsed.data.userId;
         const list = await prisma.session.findMany({ where: { userId: parsed.data.userId }, select: { id: true } });
         ids.push(...list.map((s) => s.id));
     }
@@ -50,6 +60,9 @@ export const POST = withServiceAuth(async (req: NextRequest, ctx) => {
         for (const id of ids) pipe.set(`session:revoked:${id}`, '1', 'EX', 60 * 60 * 24);
         await pipe.exec();
     }
+
+    // Después de la base y de la lista de Redis: ya está revocada. Avisa a las aplicaciones.
+    if (persona) await publicarSesionCerrada([persona], 'revocada');
 
     audit({
         action: 'session.revoke',

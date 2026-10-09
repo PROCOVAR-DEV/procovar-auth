@@ -291,6 +291,8 @@ export async function POST(request: Request) {
             }
         }
 
+        // Aceptar una invitación sólo da acceso: no se publica nada.
+
         return NextResponse.json({
             success: true,
             message: `You are now a ${invitation.role} of ${invitation.organization.name}`,

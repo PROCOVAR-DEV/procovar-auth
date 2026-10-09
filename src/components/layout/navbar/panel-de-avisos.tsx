@@ -16,38 +16,51 @@ import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@heroui/react";
 import { Icons } from "@/components/icons/iconify";
 import { notificationBody, notificationTitle, relativeTime } from "@/lib/notify/format";
-import type { InboxNotification } from "@/lib/notify/types";
+import { paginaDestino } from "@/lib/notify/panel";
+import { isUnread, type AvisoVista } from "@/lib/notify/types";
 
 export interface PanelDeAvisosProps {
-    avisos: InboxNotification[];
+    avisos: AvisoVista[];
     cargando: boolean;
     error: boolean;
     page: number;
     pageCount: number;
     sinLeer: number;
+    /** Cómo decir «sin leer»: «100+» si la lista llegó al tope (ver `etiquetaSinLeer`). Por defecto, el número. */
+    sinLeerTexto?: string;
+    /** `id` del <h2>: el contenedor lo enlaza con `aria-labelledby` del diálogo. */
+    tituloId?: string;
     onPage: (page: number) => void;
-    onSelect: (aviso: InboxNotification) => void;
+    onSelect: (aviso: AvisoVista) => void;
     onRetry: () => void;
     /** Se pulsó «Gestionar avisos»: el contenedor cierra el panel. */
     onGestionar: () => void;
 }
 
+// `aria-disabled` y no `disabled`: un botón que se apaga a sí mismo con el foco puesto lo
+// pierde, y quien navega con teclado se queda sin sitio. Se queda enfocable y no hace nada.
 const botonPagina =
-    "inline-flex size-9 items-center justify-center border border-pv-trazo text-pv-tinta transition-colors hover:bg-pv-azul-tinte disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent";
+    "inline-flex size-9 items-center justify-center border border-pv-trazo text-pv-tinta transition-colors hover:bg-pv-azul-tinte aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:bg-transparent";
 
 export function PanelDeAvisos(p: PanelDeAvisosProps) {
     const t = useTranslations("avisosPanel");
     const locale = useLocale();
     const primeraCarga = p.cargando && p.avisos.length === 0;
+    const ir = (delta: -1 | 1) => {
+        const destino = paginaDestino(p.page, p.pageCount, delta);
+        if (destino !== null) p.onPage(destino);
+    };
 
     return (
         <>
             <div className="flex shrink-0 items-center justify-between gap-2 border-b border-pv-trazo-tenue px-4 py-3">
-                <h2 className="pv-rotulo">{t("titulo")}</h2>
-                {p.sinLeer > 0 && <span className="pv-etiqueta pv-etiqueta-azul">{t("noLeidos", { n: p.sinLeer })}</span>}
+                <h2 id={p.tituloId} className="pv-rotulo">{t("titulo")}</h2>
+                {p.sinLeer > 0 && (
+                    <span className="pv-etiqueta pv-etiqueta-azul">{t("noLeidos", { n: p.sinLeerTexto ?? p.sinLeer })}</span>
+                )}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto" aria-live="polite" aria-busy={p.cargando}>
+            <div className="min-h-0 flex-1 overflow-y-auto" aria-busy={p.cargando}>
                 {p.error ? (
                     <div role="alert" className="flex flex-col items-center gap-2 px-6 py-8 text-center">
                         <p className="text-sm font-semibold text-pv-cuno">{t("error")}</p>
@@ -72,7 +85,7 @@ export function PanelDeAvisos(p: PanelDeAvisosProps) {
                 ) : (
                     <ul className="divide-y divide-pv-trazo-tenue">
                         {p.avisos.map((n) => {
-                            const sinLeer = !n.readAt;
+                            const sinLeer = isUnread(n);
                             return (
                                 <li key={n.id}>
                                     <button
@@ -105,7 +118,7 @@ export function PanelDeAvisos(p: PanelDeAvisosProps) {
                                                     {relativeTime(n.createdAt, locale)}
                                                 </span>
                                             </span>
-                                            <span className="mt-0.5 line-clamp-2 block text-xs text-pv-tinta-suave">
+                                            <span className="mt-0.5 line-clamp-2 block break-words text-xs text-pv-tinta-suave">
                                                 {notificationBody(n)}
                                             </span>
                                         </span>
@@ -126,8 +139,8 @@ export function PanelDeAvisos(p: PanelDeAvisosProps) {
                         type="button"
                         className={botonPagina}
                         aria-label={t("anterior")}
-                        disabled={p.cargando || p.page <= 1}
-                        onClick={() => p.onPage(p.page - 1)}
+                        aria-disabled={p.page <= 1}
+                        onClick={() => ir(-1)}
                     >
                         <Icons.chevronLeft className="size-4" aria-hidden />
                     </button>
@@ -138,8 +151,8 @@ export function PanelDeAvisos(p: PanelDeAvisosProps) {
                         type="button"
                         className={botonPagina}
                         aria-label={t("siguiente")}
-                        disabled={p.cargando || p.page >= p.pageCount}
-                        onClick={() => p.onPage(p.page + 1)}
+                        aria-disabled={p.page >= p.pageCount}
+                        onClick={() => ir(1)}
                     >
                         <Icons.chevronRight className="size-4" aria-hidden />
                     </button>

@@ -33,7 +33,8 @@ export function SecuritySection() {
         const { error } = await authClient.changePassword({
             currentPassword,
             newPassword,
-            revokeOtherSessions: false,
+            // Lo estándar: quien cambia la contraseña porque sospecha de su cuenta no deja viva la sesión ajena.
+            revokeOtherSessions: true,
         });
         if (error) {
             setPasswordMsg(t("myProfile.security.wrongCurrentPassword"));

@@ -1,4 +1,5 @@
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { organization } from "better-auth/plugins";
 import { prismaAdapter } from "better-auth/adapters/prisma";
@@ -12,6 +13,9 @@ import {
     notifyWelcome,
 } from "./notifications";
 import { uuidv7 } from './uuidv7';
+import { cerrarSesionesAntes, cerrarSesionesDespues } from './hooks-de-sesion';
+import { auditarInicioWeb } from './historial-de-inicios';
+import { CLIENTE_DE_APARATOS } from './sesiones-de-la-persona';
 
 const APP_NAME = process.env.APP_NAME ?? "QB Auth";
 /**
@@ -45,7 +49,10 @@ const clientIdFromFlowCookie = (cookieHeader?: string | null): string | undefine
     if (!raw) return undefined;
     try {
         const parsed = JSON.parse(decodeURIComponent(raw)) as { clientId?: unknown };
-        return typeof parsed.clientId === 'string' && parsed.clientId ? parsed.clientId : undefined;
+        // `qb.flow_state` va sin firmar: el cliente de los aparatos no se acepta de aquí, sólo lo escribe `/api/auth/token`.
+        return typeof parsed.clientId === 'string' && parsed.clientId && parsed.clientId !== CLIENTE_DE_APARATOS
+            ? parsed.clientId
+            : undefined;
     } catch {
         return undefined;
     }
@@ -97,6 +104,9 @@ export const auth = betterAuth({
             },
         },
         resetPasswordTokenExpiresIn: RESET_PASSWORD_EXPIRES_IN,
+        // Quien recupera una cuenta robada no puede dejar viva la sesión del atacante. El aviso a las
+        // demás aplicaciones («revocada») sale de `hooks-de-sesion.ts` al terminar `/reset-password`.
+        revokeSessionsOnPasswordReset: true,
         sendResetPassword: async ({ user, url }) => {
             // Don't await - fire and forget to not block the flow
             notifyForgotPassword({
@@ -168,9 +178,15 @@ export const auth = betterAuth({
         },
     },
     experimental: { joins: true },
+    // Cerrar sesión en Accesos se avisa a las demás aplicaciones (`docs/sesion-unica.md`).
+    hooks: { before: cerrarSesionesAntes, after: cerrarSesionesDespues },
     plugins: [
         nextCookies(),
-        organization(),
+        // Las sucursales las crea un Super Admin con una acción de servidor (`crearSucursal`). Con el valor
+        // por defecto, cualquier persona autenticada hacía `POST /api/auth/organization/create`, quedaba
+        // `owner` de su propia organización y desde ahí podía tocar membresías ajenas (auditoría 08/10/2026).
+        // Los demás endpoints del plugin los corta `[...all]/route.ts` (`lib/rutas-de-better-auth.ts`).
+        organization({ allowUserToCreateOrganization: false }),
     ],
     emailVerification: {
         sendVerificationEmail: async ({ user, url }) => {
@@ -222,6 +238,10 @@ export const auth = betterAuth({
                  * vienen en blanco: si better-auth acertó, se respeta.
                  */
                 before: async (session, ctx) => {
+                    // Una cuenta de baja (`activo=false`) no abre sesión. Va ANTES de todo y con el mismo error que
+                    // una contraseña mala: este hook corre cuando la clave ya es buena, y otro mensaje lo confirmaría.
+                    const persona = await prisma.user.findUnique({ where: { id: session.userId }, select: { activo: true } });
+                    if (persona?.activo === false) throw new APIError('UNAUTHORIZED', { message: 'Invalid email or password' });
                     if (!ctx) return;
 
                     const clientId = clientIdFromFlowCookie(ctx.headers?.get('cookie'));
@@ -236,6 +256,11 @@ export const auth = betterAuth({
                     if (Object.keys(datos).length === 0) return;
                     return { data: { ...session, ...datos } };
                 },
+                /**
+                 * Cada sesión que se abre deja huella para «Historial de inicios» de Mi
+                 * cuenta (`lib/historial-de-inicios.ts`). Si apuntar falla, se entra igual.
+                 */
+                after: async (session) => auditarInicioWeb(session),
             },
         },
         user: {
@@ -332,7 +357,9 @@ export const auth = betterAuth({
         },
         cookieCache: {
             enabled: true,
-            maxAge: 60 * 60, // 1 hour - cache session in cookie to avoid DB calls
+            // 60 s y no 1 h: una sesión cerrada (otro navegador, «Cerrar sesión» de Mi cuenta) seguía valiendo en las
+            // llamadas por HTTP hasta que caducara esta caché. Las del servidor miran la base siempre (hooks-de-sesion.ts).
+            maxAge: 60,
         },
     },
 });

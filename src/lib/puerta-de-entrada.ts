@@ -147,11 +147,17 @@ export const CUERPO_NO_DISPONIBLE = { error: 'comprobacion_no_disponible' } as c
  * `ComprobacionNoDisponible`: es la de la APK (login y refresco), donde eso debe ser un 503.
  *
  * Sí si es administrador de sistema, si tiene la llave, o si la aplicación no tiene
- * llave en el mapa (eso ni toca la base). También deja pasar a una cuenta de baja
- * (`activo=false`): decidir eso no es de la puerta sino de `resolverIdentidad`, que la
+ * llave en el mapa (eso ni toca la base). Una cuenta de baja (`activo=false`) PASA por defecto
+ * (`bajaPasa`, la APK): decidir eso no es de la puerta sino de `resolverIdentidad`, que la
  * cierra con `revoked`; sin esto una cuenta de baja sin la llave recibía 403 `sin_permiso`.
+ * La WEB (`puedeEntrar`, y `/exchange`) pasa `bajaPasa: false`: ahí nadie cierra con `revoked`, y
+ * una baja entraba a las ocho aplicaciones con su sesión de antes (revisión del 09/10/2026).
  */
-export async function comprobarEntrada(userId: string, clientId: string | null | undefined): Promise<boolean> {
+export async function comprobarEntrada(
+    userId: string,
+    clientId: string | null | undefined,
+    { bajaPasa = true }: { bajaPasa?: boolean } = {},
+): Promise<boolean> {
     if (!clientId || !Object.hasOwn(LLAVE_DEL_CLIENTE, clientId)) {
         // Sin datos personales: sólo el id del cliente. Una errata en un id sale aquí.
         logger.info('[puerta] clientId sin llave en el mapa: pasa sin comprobar', { clientId: clientId ?? null })
@@ -163,7 +169,8 @@ export async function comprobarEntrada(userId: string, clientId: string | null |
     } catch (e) {
         throw new ComprobacionNoDisponible(e)
     }
-    return acceso.baja === true || acceso.todo || acceso.llaves.has(LLAVE_DEL_CLIENTE[clientId])
+    if (acceso.baja === true) return bajaPasa
+    return acceso.todo || acceso.llaves.has(LLAVE_DEL_CLIENTE[clientId])
 }
 
 /**
@@ -172,7 +179,7 @@ export async function comprobarEntrada(userId: string, clientId: string | null |
  */
 export async function puedeEntrar(userId: string, clientId: string | null | undefined): Promise<boolean> {
     try {
-        return await comprobarEntrada(userId, clientId)
+        return await comprobarEntrada(userId, clientId, { bajaPasa: false })
     } catch (e) {
         logger.error('[puerta] no se pudo comprobar la llave de entrada: se deniega', {
             clientId,

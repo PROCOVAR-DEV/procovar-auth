@@ -162,6 +162,32 @@ describe('el token de acceso lleva la sucursal y los roles', () => {
         expect(par.expires_in).toBe(SEGUNDOS_ACCESO)
     })
 
+    it('lleva `iatms` (ms) además de `iat` (s): coincide con el instante de la firma y con `iat` (±2 s)', async () => {
+        const antes = Date.now()
+        const par = await emitirPar({ userId: 'u1', sessionId: 's1' })
+        const despues = Date.now()
+        const c = decodeJwt(par.token)
+        expect(typeof c.iatms).toBe('number')
+        expect(c.iatms as number).toBeGreaterThanOrEqual(antes)
+        expect(c.iatms as number).toBeLessThanOrEqual(despues)
+        expect(c.iat).toBeTypeOf('number') // sigue estándar: no se quita
+        expect(Math.abs((c.iatms as number) - (c.iat as number) * 1000)).toBeLessThan(2000)
+    })
+
+    it('`iatms` evita el rebote: un token pedido tras el evento en el MISMO segundo no cae por debajo de la marca', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] })
+        try {
+            vi.setSystemTime(1_790_000_000_900) // evento: x.900 s
+            const marca = Date.now()
+            vi.setSystemTime(1_790_000_001_150) // token 250 ms después, ya en el segundo siguiente
+            const par = await emitirPar({ userId: 'u1', sessionId: 's1' })
+            const c = decodeJwt(par.token)
+            expect(c.iatms as number).toBeGreaterThan(marca)
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
     it('va etiquetado, para que no cuele como otro token de la casa', async () => {
         const par = await emitirPar({ userId: 'u1', sessionId: 's1' })
         expect(decodeJwt(par.token).purpose).toBe('apk:access')

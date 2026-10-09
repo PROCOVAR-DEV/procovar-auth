@@ -5,6 +5,8 @@ import { auth } from '@/lib/auth'
 import { resolveRbac } from '@/rbac/resolve-permissions'
 import { can } from '@/rbac/can'
 import { ungrantablePermissionKeys } from '@/rbac/grantable'
+import { personasConRol, publicarPermisosCambiados } from '@/lib/eventos-de-sesion'
+import { pierdeLlaves } from '@/lib/pierde-acceso'
 
 type Params = { params: Promise<{ roleId: string }> }
 
@@ -43,7 +45,10 @@ export async function PATCH(request: Request, { params }: Params) {
   const user = await actor(request)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const role = await prisma.role.findUnique({ where: { id: roleId } })
+  const role = await prisma.role.findUnique({
+    where: { id: roleId },
+    include: { permissions: { select: { permission: { select: { key: true } } } } },
+  })
   if (!role) return NextResponse.json({ error: 'Role not found' }, { status: 404 })
 
   // The role catalog is shared by all eight sucursales, so editing "Operador"
@@ -69,6 +74,7 @@ export async function PATCH(request: Request, { params }: Params) {
       return NextResponse.json({ error: 'cannot grant permissions you do not hold' }, { status: 403 })
     }
   }
+  let llavesNuevas: string[] | null = null
   await prisma.$transaction(async (tx) => {
     await tx.role.update({
       where: { id: roleId },
@@ -81,14 +87,24 @@ export async function PATCH(request: Request, { params }: Params) {
     })
     if (Array.isArray(permissionKeys)) {
       const perms = await tx.permission.findMany({
-        where: { key: { in: permissionKeys }, isDeprecated: false }, select: { id: true },
+        where: { key: { in: permissionKeys }, isDeprecated: false }, select: { id: true, key: true },
       })
+      llavesNuevas = perms.map((p) => p.key)
       await tx.rolePermission.deleteMany({ where: { roleId } })
       await tx.rolePermission.createMany({
         data: perms.map((p) => ({ roleId, permissionId: p.id })), skipDuplicates: true,
       })
     }
   })
+  // El nombre del rol también cuenta: hay aplicaciones (Reparto) que deciden por él.
+  const cambioElNombre = typeof name === 'string' && name !== role.name
+  // Sólo se avisa si el rol PIERDE alguna llave (guardar lo mismo, o añadir, no quita nada a nadie) o si
+  // cambia de nombre. Un PATCH que repite las llaves no puede echar a todos los que llevan el rol.
+  const teniaLlaves = (role.permissions ?? []).map((p) => p.permission?.key).filter((k): k is string => Boolean(k))
+  const quitaLlaves = llavesNuevas !== null && pierdeLlaves(teniaLlaves, llavesNuevas)
+  if (quitaLlaves || cambioElNombre) {
+    await publicarPermisosCambiados(await personasConRol(roleId), quitaLlaves ? 'llaves' : 'rol')
+  }
   return NextResponse.json({ ok: true })
 }
 
@@ -110,6 +126,10 @@ export async function DELETE(request: Request, { params }: Params) {
   if (role._count.memberRoles > 0) {
     return NextResponse.json({ error: 'Role has members assigned; reassign them first' }, { status: 409 })
   }
+  // Sin membresías con este rol, pero sí puede ser el rol por defecto de alguien: al borrarlo
+  // queda en NULL (`onDelete: SetNull`) y cambia lo que esa persona puede. Se apuntan ANTES.
+  const conEsteRol = await personasConRol(roleId, { lanzar: true }) // si falla, que no se borre sin avisar
   await prisma.role.delete({ where: { id: roleId } })
+  await publicarPermisosCambiados(conEsteRol, 'rol')
   return NextResponse.json({ ok: true })
 }

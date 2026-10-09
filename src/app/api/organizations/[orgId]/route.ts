@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 import { headers } from 'next/headers';
+import { personasDeLaSucursal, publicarPermisosCambiados } from '@/lib/eventos-de-sesion';
+import { sucursalPierdeAcceso } from '@/lib/pierde-acceso';
 
 type Params = { params: Promise<{ orgId: string }> };
 
@@ -279,6 +281,12 @@ export async function PATCH(request: Request, { params }: Params) {
             }
         }
 
+        // Cómo estaba ANTES, para avisar sólo si de verdad se desactiva o cambia el código.
+        const antes = await prisma.organization.findUnique({
+            where: { id: orgId },
+            select: { activa: true, codigo: true },
+        });
+
         const organization = await prisma.organization.update({
             where: { id: orgId },
             data: {
@@ -299,6 +307,14 @@ export async function PATCH(request: Request, { params }: Params) {
             },
         });
 
+        // `activa` y `codigo` deciden las sucursales que lleva el acceso de cada persona; sólo se avisa
+        // si cambian de verdad (un formulario que las manda siempre no puede echar a toda la sucursal).
+        if (
+            antes &&
+            sucursalPierdeAcceso(antes, { activa: organization.activa, codigo: organization.codigo ?? null })
+        ) {
+            await publicarPermisosCambiados(await personasDeLaSucursal(orgId), 'membresia');
+        }
         return NextResponse.json({ organization });
     } catch (error) {
         console.error('Failed to update organization:', error);
@@ -355,9 +371,12 @@ export async function DELETE(request: Request, { params }: Params) {
             return NextResponse.json({ error: 'Only owners can delete organizations' }, { status: 403 });
         }
 
+        // Sus miembros se borran en cascada con ella: se apuntan ANTES.
+        const personas = await personasDeLaSucursal(orgId, { lanzar: true }); // si falla, que no se borre sin avisar
         await prisma.organization.delete({
             where: { id: orgId },
         });
+        await publicarPermisosCambiados(personas, 'membresia');
 
         return NextResponse.json({ success: true });
     } catch (error) {

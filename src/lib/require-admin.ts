@@ -17,7 +17,8 @@ type SessionUser = {
 };
 
 export async function resolveSessionUser() {
-    const session = await auth.api.getSession({ headers: await headers() });
+    // `disableCookieCache`: a la base, no a la caché de la cookie (que no sabe de sesiones cerradas).
+    const session = await auth.api.getSession({ headers: await headers(), query: { disableCookieCache: true } });
     if (!session || !session.user) return null;
 
     // Reject revoked sessions. getSession() serves from its cookie cache and

@@ -176,16 +176,36 @@ describe('comprobarEntrada: la de la APK LANZA si la base falla', () => {
     })
 })
 
-describe('una cuenta de baja (activo=false) pasa la puerta: la cierra resolverIdentidad', () => {
-    it('sin la llave, comprobarEntrada y puedeEntrar la dejan pasar (no es sin_permiso)', async () => {
+describe('una cuenta de baja (activo=false): la APK la deja pasar (la cierra resolverIdentidad); la WEB no', () => {
+    const clientes = Object.keys(LLAVE_DEL_CLIENTE)
+
+    it('APK: comprobarEntrada la deja pasar, con o sin la llave (no es sin_permiso: el cierre es `revoked`)', async () => {
         db.user.findUnique.mockResolvedValue(persona({ activo: false, porDefecto: ['pedido.entrar'] }))
         expect(await comprobarEntrada('u1', 'delivery-apk')).toBe(true)
-        expect(await puedeEntrar('u1', 'delivery-apk')).toBe(true)
+        db.user.findUnique.mockResolvedValue(persona({ activo: false, porDefecto: ['delivery.entrar'] }))
+        expect(await comprobarEntrada('u1', 'delivery-apk')).toBe(true)
     })
 
-    it('una cuenta ACTIVA sin la llave sigue sin entrar', async () => {
+    it('WEB: puedeEntrar NO la deja entrar a NINGUNA aplicación, tenga las llaves que tenga (o sea administradora)', async () => {
+        for (const m of [persona({ activo: false }), persona({ activo: false, porDefecto: [...new Set(Object.values(LLAVE_DEL_CLIENTE))] }), persona({ activo: false, admin: true })]) {
+            db.user.findUnique.mockResolvedValue(m)
+            for (const c of clientes) expect(await puedeEntrar('u1', c), c).toBe(false)
+        }
+    })
+
+    it('WEB, canje en /exchange (`bajaPasa: false`): tampoco; y la APK (por defecto) sigue pasando', async () => {
+        db.user.findUnique.mockResolvedValue(persona({ activo: false, porDefecto: ['pedido.entrar'] }))
+        for (const c of clientes) expect(await comprobarEntrada('u1', c, { bajaPasa: false }), c).toBe(false)
+        expect(await comprobarEntrada('u1', 'pedido')).toBe(true)
+    })
+
+    it('una cuenta ACTIVA no cambia: sin la llave no entra, con ella sí, la administradora entra a todo', async () => {
         db.user.findUnique.mockResolvedValue(persona({ activo: true, porDefecto: ['pedido.entrar'] }))
         expect(await comprobarEntrada('u1', 'delivery-apk')).toBe(false)
+        expect(await puedeEntrar('u1', 'delivery-apk')).toBe(false)
+        expect(await puedeEntrar('u1', 'pedido')).toBe(true)
+        db.user.findUnique.mockResolvedValue(persona({ activo: true, admin: true }))
+        for (const c of clientes) expect(await puedeEntrar('u1', c), c).toBe(true)
     })
 })
 

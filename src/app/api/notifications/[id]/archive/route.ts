@@ -1,7 +1,7 @@
 /** POST /api/notifications/{id}/archive — ownership-checked before the upstream call. */
 import { NextResponse } from "next/server";
 import { archive } from "@/lib/notify/inbox";
-import { requireOwnedNotification } from "../../_ownership";
+import { avisosNoDisponible, privada, requireOwnedNotification } from "../../_ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -12,5 +12,5 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     if (owned instanceof NextResponse) return owned;
 
     const ok = await archive(id);
-    return NextResponse.json({ ok }, { status: ok ? 200 : 502 });
+    return ok ? privada(NextResponse.json({ ok })) : avisosNoDisponible();
 }

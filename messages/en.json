@@ -5,19 +5,13 @@
     "contact": "Contact",
     "listProperty": "List your property",
     "profile": "My account",
-    "notifications": "Notifications",
     "settings": "Edit profile",
     "invoices": "Invoices",
     "reservations": "Reservations",
     "services": "Subscriptions",
     "vouchers": "Vouchers",
     "logOut": "Log Out",
-    "userMenu": "User menu",
-    "notificationsAria": "Notifications",
-    "markAllRead": "Mark all read",
-    "noNotifications": "No updates",
-    "noNotificationsHint": "We'll notify you when there's activity",
-    "manageNotifications": "Manage notifications"
+    "userMenu": "User menu"
   },
   "auth": {
     "getStarted": "Get Started",
@@ -1132,6 +1126,82 @@
     "pagina": "Page {actual} of {total}",
     "anterior": "Previous page",
     "siguiente": "Next page",
-    "gestionar": "Manage notifications"
+    "gestionar": "Manage notifications",
+    "marcarTodo": "Mark all as read",
+    "marcandoTodo": "Marking…",
+    "marcarTodoError": "{n, plural, one {# notification could not be marked} other {# notifications could not be marked}}"
+  },
+  "dispositivos": {
+    "titulo": "Devices and sessions",
+    "ayuda": "Where this account is signed in right now. If you don't recognise one, you can close it from here.",
+    "cargando": "Looking up the sessions…",
+    "vacio": "There are no active sessions to show.",
+    "error": "The sessions could not be loaded",
+    "errorPista": "The rest of the page keeps working.",
+    "reintentar": "Retry",
+    "conteo": "Your account is signed in on {dispositivos, plural, one {# device} other {# devices}} and {navegadores, plural, one {# browser} other {# browsers}}.",
+    "grupo": {
+      "navegadores": "Browsers",
+      "dispositivos": "Reparto devices"
+    },
+    "estaSesion": "This session",
+    "esteDispositivo": "This device",
+    "app": "Reparto app",
+    "appEn": "Reparto app on {sistema}",
+    "nombre": "{navegador} on {sistema}",
+    "sinNombre": "Unidentified browser",
+    "ip": "IP {ip}",
+    "sinIp": "IP not recorded",
+    "entroEl": "Signed in {fecha}",
+    "ultimaActividad": "Last activity: {fecha}",
+    "aparatoAviso": "It closes as soon as the device reconnects or, at most, within 15 minutes.",
+    "cerrarEsta": "Close this session",
+    "cerrarEstaAria": "Close the session of {nombre}",
+    "cerrarEsteAparato": "Close this device",
+    "cerrarEsteAparatoAria": "Close the device {nombre}",
+    "cerrarOtras": "Close the other sessions",
+    "cerrarTodas": "Close on all devices",
+    "confirmar": {
+      "tituloOtras": "Close the other sessions?",
+      "cuerpoOtras": "Every session except this one will be closed: the other browsers and the Reparto devices.",
+      "tituloTodas": "Close on all devices?",
+      "cuerpoTodas": "Every session will be closed, this one too: you will have to sign in again.",
+      "avisoDispositivos": "The Reparto phone and desktop will also be closed and will have to sign in again once they get signal; work not yet uploaded is not lost.",
+      "cancelar": "Cancel",
+      "confirmarOtras": "Close the others",
+      "confirmarTodas": "Close all"
+    },
+    "resultado": {
+      "una": "Session closed.",
+      "otras": "The other sessions were closed.",
+      "noExiste": "That session no longer exists.",
+      "falloAccion": "It could not be closed. Please try again."
+    }
+  },
+  "historial": {
+    "titulo": "Sign-in history",
+    "ayuda": "When and where this account was signed in over the last 90 days. Only completed sign-ins are listed, not failed attempts. If you do not recognise one, change your password and sign out of your other sessions.",
+    "cargando": "Looking up the sign-ins…",
+    "vacio": "There are no sign-ins to show yet.",
+    "error": "The history could not be loaded",
+    "errorPista": "The rest of the page keeps working.",
+    "reintentar": "Try again",
+    "errorMas": "More sign-ins could not be loaded. Please try again.",
+    "verMas": "Show more",
+    "estaSesion": "This session",
+    "abierta": "Still open",
+    "cerrada": "Closed",
+    "app": "Reparto app",
+    "appEn": "Reparto app on {sistema}",
+    "nombre": "{navegador} on {sistema}",
+    "sinNombre": "Unidentified browser",
+    "ip": "IP {ip}",
+    "sinIp": "IP not recorded"
+  },
+  "avisosArreglos": {
+    "sinLeerEstado": "Notifications: {n} unread"
+  },
+  "dispositivosArreglos": {
+    "truncada": "Showing the 100 most recent sessions; there are more than fit in this list."
   }
 }

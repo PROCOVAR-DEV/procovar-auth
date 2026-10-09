@@ -64,7 +64,7 @@ export async function GET() {
                     redirectUrl = flow.origin;
                     isExternal = true;
                 } else {
-                    const session = await auth.api.getSession({ headers: await nextHeaders() });
+                    const session = await auth.api.getSession({ headers: await nextHeaders(), query: { disableCookieCache: true } });
                     if (!session) {
                         redirectUrl = flow.origin;
                         isExternal = true;

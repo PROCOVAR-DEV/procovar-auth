@@ -52,6 +52,22 @@ const SISTEMAS: [RegExp, string][] = [
 ];
 
 /**
+ * Las dos mitades por separado, para quien tenga que decirlas en otro idioma («Chrome on
+ * Windows»): el nombre del navegador y el del sistema son marcas y no se traducen, el «en» sí.
+ */
+export function partesDelAgente(userAgent: string | null | undefined): {
+  navegador: string | null;
+  sistema: string | null;
+} {
+  const ua = (userAgent ?? '').trim();
+  if (!ua) return { navegador: null, sistema: null };
+  return {
+    navegador: NAVEGADORES.find(([re]) => re.test(ua))?.[1] ?? null,
+    sistema: SISTEMAS.find(([re]) => re.test(ua))?.[1] ?? null,
+  };
+}
+
+/**
  * El aparato, en dos palabras: "Chrome en Windows".
  *
  * No se pretende acertar siempre —las cadenas de agente mienten a propósito
@@ -59,11 +75,7 @@ const SISTEMAS: [RegExp, string][] = [
  * si fue desde su ordenador o desde un teléfono que no es suyo.
  */
 export function aparatoDeSesion(userAgent: string | null | undefined): string | null {
-  const ua = (userAgent ?? '').trim();
-  if (!ua) return null;
-
-  const navegador = NAVEGADORES.find(([re]) => re.test(ua))?.[1];
-  const sistema = SISTEMAS.find(([re]) => re.test(ua))?.[1];
+  const { navegador, sistema } = partesDelAgente(userAgent);
 
   if (navegador && sistema) return `${navegador} en ${sistema}`;
   if (navegador) return navegador;

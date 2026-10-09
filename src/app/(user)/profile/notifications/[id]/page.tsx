@@ -5,13 +5,14 @@
  * the notification belongs to the session user — the upstream inbox API is only
  * application-scoped, so that check is what keeps inboxes apart.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { Button, Chip } from "@heroui/react";
 import { ProfilePageShell } from "@/components/profile/profile-page-shell";
 import { Icons } from "@/components/icons/iconify";
-import { notificationHref, type InboxNotification } from "@/lib/notify/types";
+import type { AvisoVista } from "@/lib/notify/types";
+import { marcarLeidoUnaVez } from "@/lib/notify/marcar-una-vez";
 import {
     absoluteTime,
     notificationBody,
@@ -26,7 +27,7 @@ export default function NotificationDetailPage() {
     const locale = useLocale();
 
     const id = params?.id;
-    const [notification, setNotification] = useState<InboxNotification | null>(null);
+    const [notification, setNotification] = useState<AvisoVista | null>(null);
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
 
@@ -41,7 +42,7 @@ export default function NotificationDetailPage() {
                 setNotification(null);
                 return;
             }
-            const data = (await res.json()) as { notification: InboxNotification };
+            const data = (await res.json()) as { notification: AvisoVista | null };
             setNotification(data.notification ?? null);
         } catch {
             setNotification(null);
@@ -54,13 +55,22 @@ export default function NotificationDetailPage() {
         void load();
     }, [load]);
 
-    // Opening the detail is reading it.
+    // Opening the detail is reading it — UNA vez por aviso (ver marcar-una-vez.ts): si el POST
+    // falla no se reintenta en bucle con cada recarga.
+    const intentados = useRef(new Set<string>());
     useEffect(() => {
-        if (!notification || notification.readAt) return;
-        void fetch(`/api/notifications/${encodeURIComponent(notification.id)}/read`, {
-            method: "POST",
-            credentials: "include",
-        }).then(() => load());
+        void marcarLeidoUnaVez(
+            notification,
+            intentados.current,
+            async (avisoId) => {
+                const res = await fetch(`/api/notifications/${encodeURIComponent(avisoId)}/read`, {
+                    method: "POST",
+                    credentials: "include",
+                });
+                return res.ok;
+            },
+            load,
+        );
     }, [notification, load]);
 
     const act = async (action: "read" | "archive" | "unarchive") => {
@@ -107,7 +117,7 @@ export default function NotificationDetailPage() {
         );
     }
 
-    const href = notificationHref(notification.payload);
+    const href = notification.href ?? null;
     const read = Boolean(notification.readAt);
 
     return shell(

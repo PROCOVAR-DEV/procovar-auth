@@ -14,7 +14,11 @@
  * se cierra al pulsar fuera o al sacar el foco del panel.
  *
  * Marcar leído: solo al pulsar un aviso (la operación por aviso ya existe en Notify).
- * Marcar todo o archivar se hace en el centro de avisos, al que lleva el botón del pie.
+ * «Marcar todo como leído» y archivar están en el centro de avisos (/profile/notifications),
+ * al que lleva el botón del pie.
+ *
+ * Sin sondeo: el contador y la lista se refrescan al montar, al volver a la pestaña, AL
+ * ABRIR el panel y tras marcar leído. Cerrado no hay ninguna petición por detrás.
  */
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -23,11 +27,14 @@ import { cn } from "@heroui/react";
 import { Icons } from "@/components/icons/iconify";
 import { authClient } from "@/lib/auth-client";
 import { useNotifications } from "@/hooks/use-notifications";
-import { notificationHref, type InboxNotification } from "@/lib/notify/types";
+import { destinoAviso } from "@/lib/notify/format";
+import { etiquetaSinLeer } from "@/lib/notify/panel";
+import { isUnread, type AvisoVista } from "@/lib/notify/types";
 import { PanelDeAvisos } from "./panel-de-avisos";
 
 export function NotificationBell() {
     const t = useTranslations("avisosPanel");
+    const tArreglos = useTranslations("avisosArreglos");
     const router = useRouter();
     const { data: session } = authClient.useSession();
     const [open, setOpen] = useState(false);
@@ -36,6 +43,7 @@ export function NotificationBell() {
     const triggerRef = useRef<HTMLButtonElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
     const panelId = useId();
+    const tituloId = `${panelId}-titulo`;
 
     const { notifications, unreadCount, loading, error, pageInfo, markRead, refresh } = useNotifications({
         live: true,
@@ -45,10 +53,18 @@ export function NotificationBell() {
     // se muestra la que de verdad es.
     const paginaActual = pageInfo?.page ?? 1;
     const paginas = pageInfo?.pageCount ?? 1;
+    // Notify solo da los 100 más recientes: con la lista al tope, el número es una cota («100+»).
+    const sinLeerTexto = etiquetaSinLeer(unreadCount, pageInfo?.total ?? 0);
 
-    const cerrar = () => {
-        setOpen(false);
-        setPage(1);
+    const cerrar = () => setOpen(false);
+
+    // Al abrir se pide lo último, y siempre desde la primera página. Si ya estaba en la 1
+    // no cambia `page` (y no se dispararía la carga), así que se refresca a mano; si no,
+    // volver a la 1 ya provoca la carga: una sola petición en cualquier caso.
+    const abrir = () => {
+        setOpen(true);
+        if (page === 1) void refresh();
+        else setPage(1);
     };
 
     useEffect(() => {
@@ -57,14 +73,10 @@ export function NotificationBell() {
         const onKey = (event: KeyboardEvent) => {
             if (event.key !== "Escape") return;
             setOpen(false);
-            setPage(1);
             triggerRef.current?.focus();
         };
         const onPointer = (event: PointerEvent) => {
-            if (ref.current && !ref.current.contains(event.target as Node)) {
-                setOpen(false);
-                setPage(1);
-            }
+            if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
         };
         document.addEventListener("keydown", onKey);
         document.addEventListener("pointerdown", onPointer);
@@ -77,11 +89,11 @@ export function NotificationBell() {
     // Logged out there is no inbox — and no point showing a bell.
     if (!session?.user) return null;
 
-    const select = (n: InboxNotification) => {
+    const select = (n: AvisoVista) => {
         cerrar();
-        if (!n.readAt) void markRead(n.id);
-        // Destination is derived from the payload here; the payload never carries a URL.
-        router.push(notificationHref(n.payload) ?? `/profile/notifications/${n.id}`);
+        if (isUnread(n)) void markRead(n.id);
+        // El destino lo calcula el servidor (`href`); sin él, el detalle, con el id codificado.
+        router.push(destinoAviso(n));
     };
 
     return (
@@ -96,13 +108,13 @@ export function NotificationBell() {
             <button
                 ref={triggerRef}
                 type="button"
-                onClick={() => (open ? cerrar() : setOpen(true))}
+                onClick={() => (open ? cerrar() : abrir())}
                 className={cn(
                     "relative inline-flex size-9 items-center justify-center border border-pv-trazo text-pv-tinta transition-colors hover:bg-pv-azul-tinte",
                     open && "bg-pv-azul-tinte",
                 )}
                 style={{ borderRadius: "var(--pv-radio)" }}
-                aria-label={unreadCount > 0 ? t("campanaConNoLeidosAria", { n: unreadCount }) : t("campanaAria")}
+                aria-label={unreadCount > 0 ? t("campanaConNoLeidosAria", { n: sinLeerTexto }) : t("campanaAria")}
                 aria-haspopup="dialog"
                 aria-expanded={open}
                 aria-controls={open ? panelId : undefined}
@@ -113,17 +125,22 @@ export function NotificationBell() {
                         aria-hidden
                         className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-pv-azul px-0.5 text-[10px] font-bold leading-none tabular-nums text-pv-blanco"
                     >
-                        {unreadCount > 9 ? "9+" : unreadCount}
+                        {unreadCount > 9 ? "9+" : sinLeerTexto}
                     </span>
                 )}
             </button>
+
+            {/* Región viva: se anuncia «N sin leer» cuando termina de cargar, sin abrir el panel. */}
+            <span role="status" className="sr-only">
+                {!loading && !error && unreadCount > 0 ? tArreglos("sinLeerEstado", { n: sinLeerTexto }) : ""}
+            </span>
 
             {open && (
                 <div
                     ref={panelRef}
                     id={panelId}
                     role="dialog"
-                    aria-label={t("panelAria")}
+                    aria-labelledby={tituloId}
                     tabIndex={-1}
                     // Móvil: de borde a borde bajo la cabecera, para no salirse de 390 px.
                     // Escritorio: anclado a la campana.
@@ -137,6 +154,8 @@ export function NotificationBell() {
                         page={paginaActual}
                         pageCount={paginas}
                         sinLeer={unreadCount}
+                        sinLeerTexto={sinLeerTexto}
+                        tituloId={tituloId}
                         onPage={setPage}
                         onSelect={select}
                         onRetry={() => void refresh()}

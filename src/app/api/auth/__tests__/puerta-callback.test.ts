@@ -134,6 +134,13 @@ describe('GET /api/auth/callback', () => {
         expect(auditoria.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.code.create' }))
     })
 
+    it('la sesión se lee de la BASE, no de la caché de la cookie (una sesión cerrada no puede acuñar un código)', async () => {
+        flujo('procovar-rutas')
+        laPersonaTiene(['rutas.entrar'])
+        await lanzar()
+        expect(betterAuth.getSession).toHaveBeenCalledWith(expect.objectContaining({ query: { disableCookieCache: true } }))
+    })
+
     it('el administrador de sistema entra sin llaves', async () => {
         flujo('aft')
         laPersonaTiene([], true)
