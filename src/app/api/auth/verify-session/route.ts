@@ -42,6 +42,23 @@ export const POST = withServiceAuth(async (req: NextRequest) => {
             return NextResponse.json({ error: 'session_revoked' }, { status: 401 });
         }
 
+        // Una cuenta de baja (`activo=false`) con la sesión ya abierta NO vale: better-auth no mira
+        // esa columna, y las apps que solo llaman aquí la seguirían aceptando. Mismo 401 y mismo
+        // código que una sesión inválida (nada que enseñarle a quien pregunta).
+        const persona = await prisma.user.findUnique({
+            where: { id: session.user.id },
+            select: {
+                activo: true,
+                defaultRole: { select: { name: true } },
+                members: {
+                    select: { memberRoles: { select: { role: { select: { name: true } } } } },
+                },
+            },
+        });
+        if (persona?.activo === false) {
+            return NextResponse.json({ error: 'invalid_session' }, { status: 401 });
+        }
+
         const memberRows = await prisma.member.findMany({
             where: { userId: session.user.id },
             select: {
@@ -77,15 +94,6 @@ export const POST = withServiceAuth(async (req: NextRequest) => {
         // 403, sin nombre, sin menú y sin poder cerrar sesión.
         //
         // El rol de verdad es el de la PERSONA: el mismo en todas sus sucursales.
-        const persona = await prisma.user.findUnique({
-            where: { id: session.user.id },
-            select: {
-                defaultRole: { select: { name: true } },
-                members: {
-                    select: { memberRoles: { select: { role: { select: { name: true } } } } },
-                },
-            },
-        });
         const roles = [
             ...(persona?.defaultRole?.name ? [persona.defaultRole.name] : []),
             ...(persona?.members ?? []).flatMap((m) => m.memberRoles.map((mr) => mr.role.name)),

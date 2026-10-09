@@ -152,17 +152,26 @@ export const CUERPO_NO_DISPONIBLE = { error: 'comprobacion_no_disponible' } as c
  * cierra con `revoked`; sin esto una cuenta de baja sin la llave recibía 403 `sin_permiso`.
  * La WEB (`puedeEntrar`, y `/exchange`) pasa `bajaPasa: false`: ahí nadie cierra con `revoked`, y
  * una baja entraba a las ocho aplicaciones con su sesión de antes (revisión del 09/10/2026).
+ *
+ * Con `bajaPasa: false` la baja se mira TAMBIÉN para los clientes decididos como `SIN_LLAVE`
+ * (`asignacion`, `crm`, `rutas`, `portal`, `procovar-sync`...): sin esto el atajo de «no hay llave»
+ * salía con `true` antes de mirarla y una baja canjeaba un código de esos clientes (auditoría A1,
+ * BAJO-4). Para ellos la baja es lo ÚNICO que se comprueba. Un id que no está en ninguna de las dos
+ * listas (una errata) sigue pasando sin tocar la base, como dice `LLAVE_DEL_CLIENTE`.
  */
 export async function comprobarEntrada(
     userId: string,
     clientId: string | null | undefined,
     { bajaPasa = true }: { bajaPasa?: boolean } = {},
 ): Promise<boolean> {
-    if (!clientId || !Object.hasOwn(LLAVE_DEL_CLIENTE, clientId)) {
-        // Sin datos personales: sólo el id del cliente. Una errata en un id sale aquí.
+    const llave = clientId && Object.hasOwn(LLAVE_DEL_CLIENTE, clientId) ? LLAVE_DEL_CLIENTE[clientId] : undefined
+    // Sin datos personales: sólo el id del cliente. Una errata en un id sale por aquí.
+    const sinLlave = () => {
         logger.info('[puerta] clientId sin llave en el mapa: pasa sin comprobar', { clientId: clientId ?? null })
         return true
     }
+    // Sin llave no hay nada que comprobar, salvo en la WEB con un cliente decidido en SIN_LLAVE: ahí la baja no pasa.
+    if (!llave && (bajaPasa || !clientId || !SIN_LLAVE.includes(clientId))) return sinLlave()
     let acceso: Acceso
     try {
         acceso = await accesoDe(userId)
@@ -170,7 +179,8 @@ export async function comprobarEntrada(
         throw new ComprobacionNoDisponible(e)
     }
     if (acceso.baja === true) return bajaPasa
-    return acceso.todo || acceso.llaves.has(LLAVE_DEL_CLIENTE[clientId])
+    if (!llave) return sinLlave()
+    return acceso.todo || acceso.llaves.has(llave)
 }
 
 /**

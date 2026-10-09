@@ -27,9 +27,11 @@
  * marca llegue a la recarga con SCAN — pero NO por polling: eso es lo que se evita.
  *
  * Para `baja` y `revocada` (acceso que sigue vivo si el aviso se pierde) además se registra en
- * nivel `error` A QUIÉN (ids internos, sin correo ni token) y se reintenta UNA vez a los
- * `REINTENTO_MS`, con el mismo `tms`, sin retrasar la respuesta de quien lo originó.
+ * nivel `error` A QUIÉN (ids internos, sin correo ni token) y se reintenta en segundo plano con
+ * una cola EN MEMORIA (ver «Reintento durable» más abajo): backoff de 2, 5, 15 y 30 s y luego cada
+ * 60 s hasta 10 minutos, siempre con el `tms` ORIGINAL, sin retrasar la respuesta de quien lo originó.
  */
+import { createHash } from 'node:crypto';
 import type Redis from 'ioredis';
 import { getRedis } from '@/lib/redis';
 import { logger } from '@/lib/logger';
@@ -91,8 +93,108 @@ function conLimite<T>(promesa: Promise<T>): Promise<T> {
 
 /** Motivos en los que perder el aviso deja a alguien con acceso que ya no debería tener. */
 const MOTIVOS_GRAVES = new Set<MotivoDeEvento>(['baja', 'revocada']);
-/** Cuánto se espera antes de reintentar un aviso grave. */
-export const REINTENTO_MS = 2000;
+
+// ── Reintento durable (en memoria) de los avisos graves ────────────────────────────────────
+// Un solo reintento a los 2 s perdía el aviso si Redis tardaba más en volver. Ahora el aviso grave
+// que no salió espera en una cola acotada y se reintenta con backoff hasta darse por vencido.
+// Es MEMORIA: si el proceso se reinicia con avisos pendientes, se pierden (queda el `error` con los
+// ids en el log, y la aplicación se entera al caducar la cookie o en su recarga con SCAN).
+/** Esperas entre reintentos; pasadas éstas, `BACKOFF_FINAL_MS` hasta agotar la ventana. */
+export const BACKOFF_MS = [2000, 5000, 15_000, 30_000] as const;
+export const BACKOFF_FINAL_MS = 60_000;
+/** Cuánto tiempo, desde el primer fallo, se sigue intentando. */
+export const VENTANA_REINTENTOS_MS = 10 * 60_000;
+/** Tope de avisos esperando turno: Redis caído mucho rato no puede llenar la memoria. */
+export const MAX_AVISOS_PENDIENTES = 1000;
+/** La primera espera (se conserva el nombre del reintento único de antes). */
+export const REINTENTO_MS = BACKOFF_MS[0];
+
+interface AvisoPendiente {
+    tipo: TipoDeEvento;
+    ids: string[];
+    motivo: MotivoDeEvento;
+    /** El `tms` ORIGINAL: la marca solo sube, así que publicarlo tarde no resucita nada. */
+    tms: number;
+    /** Desde cuándo se intenta (para la ventana). */
+    desde: number;
+    /** Reintentos ya fallidos. */
+    intentos: number;
+    timer?: ReturnType<typeof setTimeout>;
+}
+
+declare global {
+    var __procovarAvisosPendientes: Map<string, AvisoPendiente> | undefined;
+}
+
+const cola = () => (globalThis.__procovarAvisosPendientes ??= new Map<string, AvisoPendiente>());
+const esperaTras = (fallidos: number) => BACKOFF_MS[fallidos] ?? BACKOFF_FINAL_MS;
+
+/** Mismos (tipo, alcance, motivo, personas) = el mismo aviso. Los ids van resumidos: pueden ser miles. */
+const claveDe = (tipo: TipoDeEvento, ids: readonly string[], motivo: MotivoDeEvento) =>
+    [tipo, alcanceDe(motivo), motivo, createHash('sha1').update([...ids].sort().join(',')).digest('hex')].join('|');
+
+/** Avisos graves esperando reintento (para vigilar la cola y para las pruebas). */
+export const avisosPendientes = (): number => cola().size;
+
+/** Vacía la cola y apaga sus relojes. */
+export function cancelarAvisosPendientes(): void {
+    for (const p of cola().values()) clearTimeout(p.timer);
+    cola().clear();
+}
+
+function programar(clave: string, p: AvisoPendiente, espera: number): void {
+    // `unref`: un reintento pendiente no puede impedir que el proceso se apague.
+    p.timer = setTimeout(() => void reintentar(clave, p), espera);
+    p.timer.unref?.();
+}
+
+function encolar(tipo: TipoDeEvento, ids: string[], motivo: MotivoDeEvento, tms: number, error: string): void {
+    const clave = claveDe(tipo, ids, motivo);
+    const ya = cola().get(clave);
+    if (ya) {
+        // El mismo aviso ya espera turno: no se duplica. Si éste es más reciente, manda su `tms`
+        // (la marca solo sube y cubre también al anterior) y la ventana cuenta desde ahora.
+        ya.tms = Math.max(ya.tms, tms);
+        ya.desde = Date.now();
+        return;
+    }
+    if (cola().size >= MAX_AVISOS_PENDIENTES) {
+        logger.error('[eventos-de-sesion] cola de avisos llena: aviso GRAVE perdido', { tipo, motivo, userIds: ids, error });
+        return;
+    }
+    const p: AvisoPendiente = { tipo, ids, motivo, tms, desde: Date.now(), intentos: 0 };
+    cola().set(clave, p);
+    programar(clave, p, esperaTras(0));
+}
+
+async function reintentar(clave: string, p: AvisoPendiente): Promise<void> {
+    p.timer = undefined;
+    const tms = p.tms;
+    try {
+        await enviar(p.tipo, p.ids, p.motivo, tms);
+    } catch (e) {
+        const error = (e as Error).message;
+        p.intentos += 1;
+        const espera = esperaTras(p.intentos);
+        if (Date.now() + espera - p.desde > VENTANA_REINTENTOS_MS) {
+            cola().delete(clave);
+            logger.error('[eventos-de-sesion] aviso GRAVE sin entregar: se da por vencido', {
+                tipo: p.tipo, motivo: p.motivo, userIds: p.ids, tms, intentos: p.intentos, error,
+            });
+            return;
+        }
+        // Solo el nº de personas: los ids ya quedaron en el `error` del primer fallo y quedan en el del abandono.
+        logger.warn('[eventos-de-sesion] el reintento del aviso GRAVE falló', {
+            tipo: p.tipo, motivo: p.motivo, personas: p.ids.length, intento: p.intentos, error,
+        });
+        if (cola().get(clave) === p) programar(clave, p, espera);
+        return;
+    }
+    if (cola().get(clave) !== p) return; // la cola se vació mientras viajaba
+    // Llegó un aviso igual y más reciente mientras éste viajaba: que salga también (ya, no a los 2 s).
+    if (p.tms > tms) programar(clave, p, 0);
+    else cola().delete(clave);
+}
 
 /** Marcas + mensajes en UN pipeline. Lanza si Redis no contesta o algún comando falla. */
 async function enviar(
@@ -128,16 +230,9 @@ async function publicar(tipo: TipoDeEvento, userIds: readonly string[], motivo: 
             return;
         }
         // Una baja o una revocación que no llega es acceso que sigue vivo: queda dicho A QUIÉN (ids
-        // internos de Accesos; ni correo ni token) y se reintenta una vez sin retrasar la respuesta.
+        // internos de Accesos; ni correo ni token) y se reintenta en segundo plano, sin retrasar la respuesta.
         logger.error('[eventos-de-sesion] aviso GRAVE sin entregar; se reintenta', { tipo, motivo, userIds: ids, error });
-        const reintento = setTimeout(() => {
-            enviar(tipo, ids, motivo, tms).catch((e2) =>
-                logger.error('[eventos-de-sesion] el reintento también falló', {
-                    tipo, motivo, userIds: ids, error: (e2 as Error).message,
-                }),
-            );
-        }, REINTENTO_MS);
-        reintento.unref?.();
+        encolar(tipo, ids, motivo, tms, error);
     }
 }
 

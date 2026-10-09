@@ -53,7 +53,7 @@ import { logger } from '@/lib/logger';
 import { publicarSesionCerrada } from '@/lib/eventos-de-sesion';
 import { rolesFirmados, rolPrincipal } from '@/lib/roles-de-la-persona';
 import { accesoDe } from '@/lib/aplicaciones-visibles';
-import { comprobarEntrada, entradasDe } from '@/lib/puerta-de-entrada';
+import { ComprobacionNoDisponible, LLAVE_DEL_CLIENTE, comprobarEntrada, entradasDe } from '@/lib/puerta-de-entrada';
 
 /** 15 minutos. El mismo valor que usa `call-center-board`. */
 export const SEGUNDOS_ACCESO = 15 * 60;
@@ -132,6 +132,13 @@ export const SEGUNDOS_DE_GRACIA = 120;
 const SECRETO_ACCESO = 'JWT_SECRET';
 /** Etiqueta del token, para que un token de otra cosa no cuele como acceso. */
 export const PROPOSITO_ACCESO = 'apk:access';
+
+/** Etiqueta del token de ENTREGA (ver `emitirEntrega`): distinta de la del acceso, para que ninguno cuele por el otro. */
+export const PROPOSITO_ENTREGA = 'apk:entrega';
+/** El único ámbito de ese token: dejar el trabajo sin enviar en la bandeja de revisión de Reparto. */
+export const AMBITO_ENTREGA = 'reparto.entrega';
+/** 10 minutos: lo que tarda en subirse una cola entera con mala red. Más largo no hace falta. */
+export const SEGUNDOS_ENTREGA = 10 * 60;
 
 /** Quién pide el par, para la auditoría. */
 export const CLIENTE_POR_DEFECTO = 'delivery-apk';
@@ -299,7 +306,7 @@ export async function resolverIdentidad(userId: string, sucursalPedida?: string 
  * token nuevo—, y **no** como `branchId`, que en la web significa otra cosa (el
  * id de la sucursal en la base de delivery, no su código).
  */
-export async function firmarAcceso(identidad: Identidad, sessionId: string | null): Promise<string> {
+export async function firmarAcceso(identidad: Identidad, sessionId: string | null, leidoEn: number = Date.now()): Promise<string> {
     return signJwt(
         {
             sub: identidad.sub,
@@ -317,7 +324,10 @@ export async function firmarAcceso(identidad: Identidad, sessionId: string | nul
             // (`eventos-de-sesion.ts`) en ms: un token pedido 250 ms después del evento tenía `iat*1000`
             // por debajo de la marca en ~el 75 % de los casos y se rechazaba (la APK renueva justo al
             // recibir el aviso). El consumidor prefiere `iatms` y, si falta, usa `iat*1000`.
-            iatms: Date.now(),
+            // Es el instante en que se LEYERON los datos (`leidoEn`), no el de firmar: con la base lenta, un
+            // cambio ocurrido entre la lectura y la firma no puede quedar por debajo de la marca de un token
+            // que ya no lo refleja.
+            iatms: leidoEn,
             // Sin esto, dos accesos firmados dentro del mismo segundo con los
             // mismos datos salen IDÉNTICOS byte a byte: mismo `iat`, mismo `exp`
             // y HS256 es determinista. No es inseguro —el token sigue siendo
@@ -354,8 +364,9 @@ export async function emitirPar(args: {
     reemplazaA?: string | null;
     aparato?: DatosDelAparato;
 }): Promise<Par> {
+    const leidoEn = Date.now();
     const identidad = await resolverIdentidad(args.userId, args.sucursalPedida);
-    const token = await firmarAcceso(identidad, args.sessionId);
+    const token = await firmarAcceso(identidad, args.sessionId, leidoEn);
 
     const raw = randomBytes(32).toString('base64url');
     const nueva = await prisma.refreshToken.create({
@@ -432,6 +443,27 @@ export async function revocarTodasLasSesiones(userId: string, motivo: string): P
  * persigue.
  */
 export async function renovar(raw: string, aparato?: DatosDelAparato): Promise<Renovacion> {
+    try {
+        return await renovarSinAmparo(raw, aparato);
+    } catch (e) {
+        // Cualquier fallo inesperado (la base, casi siempre) es un 503, no un 500. Importa sobre todo cuando el
+        // refresh YA se gastó (`updateMany` de abajo): el 500 no le dice a la app nada; el 503 sí, y su reintento
+        // cae en la ventana de gracia y recibe su par. `ComprobacionNoDisponible` ya es 503: se deja pasar.
+        if (e instanceof ComprobacionNoDisponible) throw e;
+        throw new RenovacionNoDisponible(e);
+    }
+}
+
+/** La base (u otra pieza nuestra) falló a mitad de renovar. `/refresh` lo contesta con 503. */
+export class RenovacionNoDisponible extends ComprobacionNoDisponible {
+    constructor(cause: unknown) {
+        super(cause);
+        this.name = 'RenovacionNoDisponible';
+        this.message = `falló la renovación: ${(cause as Error)?.message ?? cause}`;
+    }
+}
+
+async function renovarSinAmparo(raw: string, aparato?: DatosDelAparato): Promise<Renovacion> {
     const fila = await prisma.refreshToken.findUnique({
         where: { tokenHash: hashDe(raw) },
         select: {
@@ -471,7 +503,8 @@ export async function renovar(raw: string, aparato?: DatosDelAparato): Promise<R
 
     // La puerta, ANTES de gastar el refresh: sin la llave no se renueva y no se toca
     // nada, así que si se la devuelven mañana el mismo refresh vuelve a valer.
-    if (await sinLlaveDeEntrada(fila, ahora, aparato)) return { ok: false, motivo: 'sin_permiso' };
+    const cerrada = await puertaDeRenovar(fila, ahora, aparato);
+    if (cerrada) return { ok: false, motivo: cerrada };
 
     const gastado = await prisma.refreshToken.updateMany({
         where: { id: fila.id, usedAt: null, revokedAt: null },
@@ -539,7 +572,8 @@ async function conLaGracia(
     motivo: string
 ): Promise<Renovacion> {
     // Igual que en el camino normal: sin la llave no se emite, y no se gasta la gracia.
-    if (await sinLlaveDeEntrada(fila, ahora, aparato)) return { ok: false, motivo: 'sin_permiso' };
+    const cerrada = await puertaDeRenovar(fila, ahora, aparato);
+    if (cerrada) return { ok: false, motivo: cerrada };
 
     const concedida = await prisma.refreshToken.updateMany({
         where: { id: fila.id, graceUsedAt: null },
@@ -562,6 +596,44 @@ async function conLaGracia(
         return { ok: false, motivo: 'gracia_gastada' };
     }
     return emitirDesde(fila, ahora, aparato, motivo);
+}
+
+/**
+ * La puerta de `renovar`, EN ESTE ORDEN: primero que la sesión y la persona sigan vivas, y sólo
+ * después la llave. Devuelve el motivo de fallo, o `null` si se puede seguir.
+ *
+ * El orden es el arreglo (A.4.1 de `delivery-logistica/docs/bandeja-de-revision.md`). Con la llave
+ * primero, quien perdió `delivery.entrar` Y además tenía la sesión revocada (o la baja) recibía un
+ * 403 `sin_permiso` «de buena fe» en lugar de un 401: la app lo toma por «sesión viva, sin permiso»
+ * y se pone a entregar su cola a revisión, cuando no le queda sesión con la que entregarla. Así, el 403
+ * de `/refresh` quiere decir de verdad «tienes sesión, no tienes llave».
+ */
+async function puertaDeRenovar(
+    fila: FilaDeRefresh,
+    ahora: Date,
+    aparato: DatosDelAparato | undefined
+): Promise<MotivoDeFallo | null> {
+    if (await sesionOPersonaMuerta(fila, ahora)) return 'revoked';
+    if (await sinLlaveDeEntrada(fila, ahora, aparato)) return 'sin_permiso';
+    return null;
+}
+
+/**
+ * ¿Está revocada (o ya no existe) la sesión de este refresh, o dada de baja la persona? Si sí, se cierra
+ * la familia —como hace `emitirDesde`— y el refresh NO se gasta. Un refresh caducado no se mira: lo dice
+ * `emitirDesde` (`expired`), como siempre.
+ */
+async function sesionOPersonaMuerta(fila: FilaDeRefresh, ahora: Date): Promise<boolean> {
+    if (fila.expiresAt.getTime() <= ahora.getTime()) return false;
+    const sesion = fila.sessionId
+        ? await prisma.session.findUnique({ where: { id: fila.sessionId }, select: { revokedAt: true } })
+        : { revokedAt: null };
+    if (sesion && !sesion.revokedAt) {
+        const persona = await prisma.user.findUnique({ where: { id: fila.userId }, select: { activo: true } });
+        if (persona?.activo) return false;
+    }
+    await cerrarFamilia(fila.familyId);
+    return true;
 }
 
 /**
@@ -637,19 +709,10 @@ async function emitirDesde(
         return { ok: false, motivo: 'expired' };
     }
 
-    // La sesión de better-auth es lo que permite cerrar un aparato desde el panel
-    // de Personas. Si la revocaron ahí, la APK se cae aquí — como mucho 15 minutos
-    // después, que es lo que le quede al acceso que ya tiene.
-    if (fila.sessionId) {
-        const sesion = await prisma.session.findUnique({
-            where: { id: fila.sessionId },
-            select: { revokedAt: true },
-        });
-        if (!sesion || sesion.revokedAt) {
-            await cerrarFamilia(fila.familyId);
-            return { ok: false, motivo: 'revoked' };
-        }
-    }
+    // La sesión de better-auth (y la baja) ya se miraron en `puertaDeRenovar`, ANTES de la llave y de
+    // gastar el refresh: una sola lectura, no dos. Si la revocan entre aquella lectura y el estirón de
+    // `expiresAt` de más abajo, NO se resucita: ese `updateMany` va condicionado a `revokedAt: null`
+    // (`revocacion-efectiva.test.ts`, «renovar no resucita una sesión revocada»).
 
     try {
         const par = await emitirPar({
@@ -706,6 +769,131 @@ async function emitirDesde(
         }
         throw e;
     }
+}
+
+/**
+ * Por qué NO se firmó un token de entrega. El cliente sólo ve el código HTTP (401/403/409); el motivo
+ * va a la auditoría (`auth.apk.entrega_denegada`) y sirve para las pruebas.
+ */
+export type MotivoDeEntrega =
+    // 401: no hay sesión viva con la que entregar. Todos salen con el mismo cuerpo que `/refresh`.
+    | 'refresh_inexistente'
+    | 'refresh_revocado'
+    | 'refresh_gastado'
+    | 'refresh_caducado'
+    | 'otro_cliente'
+    | 'sesion_revocada'
+    | 'baja'
+    // 403: persona sin alcance (sin sucursal): no se le firma nada.
+    | 'sin_sucursal'
+    // 409: SÍ tiene `delivery.entrar`; que renueve con `/refresh`.
+    | 'tiene_permiso';
+
+export type Entrega =
+    | { ok: true; token: string; expires_in: number; ambito: string }
+    | { ok: false; motivo: MotivoDeEntrega };
+
+/**
+ * El token de ENTREGA: lo que se le da a quien conserva sesión viva pero ya NO tiene `delivery.entrar`
+ * para que pueda dejar su trabajo sin enviar en la bandeja de revisión (diseño B.1 de
+ * `delivery-logistica/docs/bandeja-de-revision.md`). Sirve para UNA cosa, dura 10 minutos y no abre
+ * nada de Reparto: ni roles (`roles: []`, `role: ''`), ni llaves (`entradas: []`, que para la API y
+ * `sync` es «no entra a nada»), y lleva `purpose` y `ambito` fijos.
+ *
+ * **No gasta el refresh y no devuelve refresh**: el de 30 días no sale del aparato más que por
+ * `/refresh`. Por eso ni escribe en la base: sólo lee, firma y deja su rastro en la auditoría.
+ *
+ * ## Las comprobaciones, en ESTE orden, y la llave la ÚLTIMA
+ *
+ * Una persona sin llave y con la sesión revocada, o de baja, NO entrega: esto es lo que impide que la
+ * bandeja sirva para saltarse un cierre de sesión. Por eso se mira primero que el refresh sea la cabeza
+ * viva de su cadena (existe, sin revocar, sin gastar, sin caducar), luego la SESIÓN, luego la persona
+ * (`resolverIdentidad`: baja → `revoked`; sin sucursal → `sin_sucursal`), y sólo al final la llave.
+ * Un refresh ya gastado es un 401 SIN revocar la cuenta: castigar los robos es cosa de `/refresh`.
+ *
+ * Quien SÍ tiene la llave no recibe nada (409): si no, podría usar la revisión para que otro aplique
+ * sus gestos con más autoridad de la que tiene el aparato. La llave se lee de las `entradas` que ya
+ * calculó `resolverIdentidad`, que son las mismas que firma el acceso normal.
+ *
+ * Si la base falla lanza (sin tragar nada): la ruta lo contesta con un 503 y la app conserva todo.
+ */
+export async function emitirEntrega(raw: string, aparato?: DatosDelAparato): Promise<Entrega> {
+    const ahora = new Date();
+    const fila = await prisma.refreshToken.findUnique({
+        where: { tokenHash: hashDe(raw) },
+        select: { id: true, userId: true, sessionId: true, clientId: true, expiresAt: true, usedAt: true, revokedAt: true },
+    });
+    // Un token que no está en la tabla no dice de quién es: ruido, sin rastro (como en `renovar`).
+    if (!fila) return { ok: false, motivo: 'refresh_inexistente' };
+
+    const denegar = (motivo: MotivoDeEntrega): Entrega => {
+        audit({
+            action: 'auth.apk.entrega_denegada',
+            userId: fila.userId,
+            clientId: CLIENTE_POR_DEFECTO,
+            ip: aparato?.ip ?? null,
+            userAgent: aparato?.userAgent ?? null,
+            meta: { motivo, refreshTokenId: fila.id, sessionId: fila.sessionId },
+        });
+        return { ok: false, motivo };
+    };
+
+    if (fila.revokedAt) return denegar('refresh_revocado');
+    if (fila.usedAt) return denegar('refresh_gastado');
+    if (fila.expiresAt.getTime() <= ahora.getTime()) return denegar('refresh_caducado');
+    // El token es de Reparto: un refresh de otra aplicación no lo produce.
+    if ((fila.clientId ?? CLIENTE_POR_DEFECTO) !== CLIENTE_POR_DEFECTO) return denegar('otro_cliente');
+
+    const sesion = fila.sessionId
+        ? await prisma.session.findUnique({
+              where: { id: fila.sessionId },
+              select: { revokedAt: true, expiresAt: true },
+          })
+        : null;
+    if (!fila.sessionId || !sesion || sesion.revokedAt || sesion.expiresAt.getTime() <= ahora.getTime()) {
+        return denegar('sesion_revocada');
+    }
+
+    let identidad: Identidad;
+    try {
+        identidad = await resolverIdentidad(fila.userId);
+    } catch (e) {
+        if (e instanceof ErrorDeIdentidad) return denegar(e.motivo === 'sin_sucursal' ? 'sin_sucursal' : 'baja');
+        throw e;
+    }
+
+    if (identidad.entradas.includes(LLAVE_DEL_CLIENTE[CLIENTE_POR_DEFECTO])) return denegar('tiene_permiso');
+
+    const token = await signJwt(
+        {
+            sub: identidad.sub,
+            // El nombre, para que la bandeja diga «Yasmani» y no un uuid; sale de aquí, no del cuerpo de la entrega.
+            name: identidad.name,
+            email: identidad.email,
+            sid: fila.sessionId,
+            sucursal: identidad.sucursal,
+            branch_id: identidad.sucursal,
+            ambito: AMBITO_ENTREGA,
+            // Sin roles ni llaves a propósito: nada que un verificador pueda tomar por un permiso.
+            entradas: [] as string[],
+            roles: [] as string[],
+            role: '',
+            // Igual que el acceso (ver `firmarAcceso`): la hora en ms, para las marcas de invalidación, y la
+            // de LEER la sesión (`ahora`, antes de la primera consulta), no la de firmar.
+            iatms: ahora.getTime(),
+            jti: randomUUID(),
+        },
+        { secretEnvVar: SECRETO_ACCESO, expiresIn: `${SEGUNDOS_ENTREGA}s`, purpose: PROPOSITO_ENTREGA }
+    );
+    audit({
+        action: 'auth.apk.entrega',
+        userId: fila.userId,
+        clientId: CLIENTE_POR_DEFECTO,
+        ip: aparato?.ip ?? null,
+        userAgent: aparato?.userAgent ?? null,
+        meta: { refreshTokenId: fila.id, sessionId: fila.sessionId },
+    });
+    return { ok: true, token, expires_in: SEGUNDOS_ENTREGA, ambito: AMBITO_ENTREGA };
 }
 
 /** Cierra UN aparato: la cadena entera de renovaciones y su sesión. */

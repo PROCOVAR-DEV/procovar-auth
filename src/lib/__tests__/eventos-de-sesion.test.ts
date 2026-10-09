@@ -38,6 +38,9 @@ import {
     ESPERA_MAX_MS,
     MARCA_SOLO_SUBE,
     REINTENTO_MS,
+    BACKOFF_MS,
+    avisosPendientes,
+    cancelarAvisosPendientes,
 } from '../eventos-de-sesion';
 
 const AHORA = 1_790_000_000_123; // un instante con milisegundos, para distinguirlos de segundos
@@ -49,6 +52,7 @@ const marcas = () => redis.comandos.filter((c) => c[0] === 'eval');
 
 beforeEach(() => {
     vi.clearAllMocks();
+    cancelarAvisosPendientes(); // la cola es global: que un test no herede los avisos del anterior
     redis.comandos.length = 0;
     globalThis.__procovarEventosRedis = undefined;
     redis.getRedis.mockReturnValue(redis.base);
@@ -56,7 +60,10 @@ beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(AHORA);
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+    cancelarAvisosPendientes();
+    vi.useRealTimers();
+});
 
 describe('el mensaje y la marca tienen la forma del contrato', () => {
     it('publica en el canal exacto un JSON con v, tipo, userIds, tms (ms) y motivo', async () => {
@@ -220,13 +227,17 @@ describe('los avisos GRAVES (baja, revocada) no se pierden en silencio', () => {
         expect(marcas()[0][4]).toBe(String(AHORA));
     });
 
-    it('si el reintento también falla se registra otra vez, y no hay un tercer intento', async () => {
+    it('si el primer reintento también falla, avisa (warn, sin ids) y sigue con el siguiente backoff, no se rinde', async () => {
         redis.pipe.exec.mockRejectedValue(new Error('sigue caído'));
         await publicarSesionCerrada(['u1'], 'revocada');
-        await vi.advanceTimersByTimeAsync(REINTENTO_MS * 5);
+        await vi.advanceTimersByTimeAsync(BACKOFF_MS[0]);
         expect(redis.pipe.exec).toHaveBeenCalledTimes(2);
-        expect(logger.error).toHaveBeenCalledTimes(2);
-        expect(logger.error.mock.calls[1][1]).toMatchObject({ userIds: ['u1'], error: 'sigue caído' });
+        expect(logger.warn.mock.calls.at(-1)?.[1]).toMatchObject({ motivo: 'revocada', personas: 1, intento: 1, error: 'sigue caído' });
+        expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('u1');
+        expect(avisosPendientes()).toBe(1);
+        await vi.advanceTimersByTimeAsync(BACKOFF_MS[1]);
+        expect(redis.pipe.exec).toHaveBeenCalledTimes(3);
+        expect(logger.error).toHaveBeenCalledOnce(); // un solo error hasta que se da por vencido
     });
 
     it('Redis colgado: la acción sigue terminando a ~1 s (el reintento va aparte)', async () => {

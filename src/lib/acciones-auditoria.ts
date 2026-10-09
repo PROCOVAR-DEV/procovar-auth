@@ -38,6 +38,8 @@ const ACCIONES: Record<string, AccionDescrita> = {
   'auth.code.exchange': { texto: 'Una aplicación comprobó su identidad', tipo: 'acceso' },
   'auth.code.denied': { texto: 'No se le dejó entrar a una aplicación (sin permiso)', tipo: 'acceso' },
   'auth.apk.denied': { texto: 'No se le dejó entrar a la aplicación del reparto (sin permiso)', tipo: 'acceso' },
+  'auth.apk.entrega': { texto: 'Dejó su trabajo sin enviar en la bandeja de revisión del reparto', tipo: 'acceso' },
+  'auth.apk.entrega_denegada': { texto: 'No se le dejó entregar su trabajo a revisión (reparto)', tipo: 'acceso' },
   'callback.create': { texto: 'Una aplicación pidió identificar a alguien', tipo: 'acceso' },
 
   'organization.create': { texto: 'Creó una sucursal', tipo: 'alta' },

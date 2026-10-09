@@ -1,6 +1,6 @@
 /**
- * CORS para las tres puertas que abre una aplicación de Procovar:
- * `POST /api/auth/token`, `/api/auth/refresh` y `/api/auth/logout`.
+ * CORS para las puertas que abre una aplicación de Procovar:
+ * `POST /api/auth/token`, `/api/auth/refresh`, `/api/auth/logout` y `/api/auth/entrega`.
  *
  * ## Por qué hizo falta
  *
@@ -61,8 +61,11 @@ export function origenPermitido(req: NextRequest): string | null {
  * Pone las cabeceras en una respuesta ya hecha. Se llama SIEMPRE, también en el
  * 401 y en el 429: sin ellas el navegador tampoco deja leer el cuerpo del
  * error, y «contraseña incorrecta» se vería otra vez como «sin conexión».
+ * También les pone `Cache-Control: no-store`, con o sin `Origin`.
  */
 export function conCors<T extends NextResponse>(res: T, req: NextRequest): T {
+    // Estas respuestas llevan tokens o dicen qué pasó con uno: ningún proxy ni caché las guarda.
+    res.headers.set('Cache-Control', 'no-store');
     const origen = origenPermitido(req);
     if (!origen) return res;
     res.headers.set('Access-Control-Allow-Origin', origen);

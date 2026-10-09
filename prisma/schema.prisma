@@ -98,6 +98,8 @@ model Session {
   updatedAt            DateTime  @updatedAt
   user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  /// Las sesiones de una persona (panel «Dispositivos y sesiones», cerrar todas, baja): sin esto era un recorrido de la tabla.
+  @@index([userId])
   @@map("session")
 }
 

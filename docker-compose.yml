@@ -19,7 +19,6 @@ services:
       # APP_URL = el dominio de ESTE servicio. A los demás se les llama por su nombre.
       - APP_URL=${APP_URL}
       - SUPPORT_EMAIL=${SUPPORT_EMAIL}
-      - QB_BACKEND_URL=${QB_BACKEND_URL}
       - QB_BOOKING_URL=${QB_BOOKING_URL}
       - QB_PANEL_URL=${QB_PANEL_URL}
       - QB_NOTIFY_URL=${QB_NOTIFY_URL}

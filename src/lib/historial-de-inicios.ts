@@ -36,15 +36,14 @@ const APARATO_DENEGADO = 'auth.apk.denied'; // sólo para descartar su `auth.sig
 const ACCIONES_LEIDAS = [INICIO_WEB, INICIO_WEB_ANTIGUO, INICIO_APARATO, APARATO_DENEGADO];
 
 export const POR_PAGINA = 10;
-export const TOPE_POR_PAGINA = 50;
 export const DIAS_DE_HISTORIAL = 90;
 const DIA_MS = 24 * 60 * 60 * 1000;
 const MISMO_INICIO_MS = 30_000;
 // ponytail: se leen como mucho 500 apuntes de la persona en 90 días y se pagina en memoria
-// (así los duplicados que caen a ambos lados de una página se descartan bien). Quien pase
-// de 500 inicios en 90 días —una cuenta compartida— pierde los más antiguos; para eso,
-// paginar en SQL con un margen de 60 s.
-const MAX_LEIDOS = 500;
+// (así los duplicados que caen a ambos lados de una página se descartan bien, y «Página X de Y»
+// sale de la misma lista ya deduplicada). Quien pase de 500 inicios en 90 días —una cuenta
+// compartida— pierde los más antiguos; para eso, paginar en SQL con un margen de 60 s.
+export const MAX_LEIDOS = 500;
 
 export interface Apunte {
     id: string;
@@ -74,15 +73,23 @@ export interface FilaDeInicio {
 
 export interface PaginaDeInicios {
     filas: FilaDeInicio[];
-    /** `desde` de la página siguiente (la fecha del último visto), o null si no hay más. */
-    siguiente: string | null;
+    /** La que se devuelve, ya normalizada: 1..paginas. Puede no ser la pedida. */
+    pagina: number;
+    /** Siempre ≥ 1, aunque no haya ningún inicio. */
+    paginas: number;
+    /** Inicios de los últimos 90 días, ya sin duplicados (de ahí sale `paginas`). */
+    total: number;
+    porPagina: number;
 }
 
-/** 10 por defecto, 50 como máximo, aunque pidan 1000, 0, -3 o «abc». */
-export function limiteDePagina(pedido: unknown): number {
-    const n = Math.trunc(Number(pedido));
-    if (!Number.isFinite(n) || n < 1) return POR_PAGINA;
-    return Math.min(n, TOPE_POR_PAGINA);
+/**
+ * `?pagina=` (1-based) → una página que existe, 1..paginas. Lo que no sea un entero ≥ 1 (NaN,
+ * 0, -1, 2.5, «abc», Infinity, null) es la primera; uno enorme (1e21) es la última. Nunca error:
+ * la lista puede haber encogido entre dos peticiones.
+ */
+export function paginaValida(pedida: string | number | null | undefined, paginas: number): number {
+    const n = Number(pedida);
+    return Math.min(Number.isInteger(n) && n >= 1 ? n : 1, Math.max(1, paginas));
 }
 
 const sesionDe = (meta: unknown): string | null => {
@@ -99,15 +106,13 @@ export function iniciosDeLaPersona(
     ctx: {
         userId: string;
         ahora: Date;
-        limite?: unknown;
-        /** Fecha del último apunte visto: sólo salen los anteriores. */
-        desde?: Date | null;
+        /** `?pagina=` tal cual llegó: aquí se normaliza. */
+        pagina?: string | number | null;
         /** Ids de las sesiones que siguen abiertas ahora. */
         vivas: ReadonlySet<string>;
         sesionActualId?: string | null;
     },
 ): PaginaDeInicios {
-    const limite = limiteDePagina(ctx.limite);
     const corte = ctx.ahora.getTime() - DIAS_DE_HISTORIAL * DIA_MS;
     const propios = apuntes.filter((a) => a.userId === ctx.userId && a.createdAt.getTime() >= corte);
 
@@ -131,11 +136,11 @@ export function iniciosDeLaPersona(
         })
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
 
-    const resto = ctx.desde ? inicios.filter((a) => a.createdAt.getTime() < ctx.desde!.getTime()) : inicios;
-    const pagina = resto.slice(0, limite);
+    const paginas = Math.max(1, Math.ceil(inicios.length / POR_PAGINA));
+    const pagina = paginaValida(ctx.pagina, paginas);
 
     return {
-        filas: pagina.map((a): FilaDeInicio => {
+        filas: inicios.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA).map((a): FilaDeInicio => {
             const sesion = sesionDe(a.meta);
             return {
                 id: a.id,
@@ -147,7 +152,10 @@ export function iniciosDeLaPersona(
                 esActual: !!sesion && sesion === ctx.sesionActualId,
             };
         }),
-        siguiente: resto.length > pagina.length ? pagina[pagina.length - 1].createdAt.toISOString() : null,
+        pagina,
+        paginas,
+        total: inicios.length,
+        porPagina: POR_PAGINA,
     };
 }
 
@@ -157,11 +165,11 @@ export function iniciosDeLaPersona(
  */
 export async function historialDeInicios(
     userId: string,
-    opts: { limite?: unknown; desde?: Date | null; sesionActualId?: string | null; ahora?: Date } = {},
+    opts: { pagina?: string | number | null; sesionActualId?: string | null; ahora?: Date } = {},
     db: Pick<typeof prisma, 'auditLog' | 'session'> = prisma,
 ): Promise<PaginaDeInicios> {
     // Sin persona no se consulta: `where: { userId: undefined }` en Prisma sería «todas».
-    if (!userId) return { filas: [], siguiente: null };
+    if (!userId) return { filas: [], pagina: 1, paginas: 1, total: 0, porPagina: POR_PAGINA };
     const ahora = opts.ahora ?? new Date();
 
     const [apuntes, vivas] = await Promise.all([
@@ -185,8 +193,7 @@ export async function historialDeInicios(
     return iniciosDeLaPersona(apuntes, {
         userId,
         ahora,
-        limite: opts.limite,
-        desde: opts.desde,
+        pagina: opts.pagina,
         vivas: new Set(vivas.map((s) => s.id)),
         sesionActualId: opts.sesionActualId,
     });

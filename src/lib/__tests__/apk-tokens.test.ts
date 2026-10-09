@@ -47,6 +47,7 @@ import {
     resolverIdentidad,
 } from '../apk-tokens'
 import { audit } from '@/lib/audit'
+import { ComprobacionNoDisponible } from '@/lib/puerta-de-entrada'
 
 const mockUser = db.user.findUnique
 const mockRefresh = db.refreshToken
@@ -172,6 +173,26 @@ describe('el token de acceso lleva la sucursal y los roles', () => {
         expect(c.iatms as number).toBeLessThanOrEqual(despues)
         expect(c.iat).toBeTypeOf('number') // sigue estándar: no se quita
         expect(Math.abs((c.iatms as number) - (c.iat as number) * 1000)).toBeLessThan(2000)
+    })
+
+    // BAJO-3 (auditoría A1): `iatms` era la hora de FIRMAR. Con la base lenta, una baja o un cambio de roles
+    // ocurrido entre la lectura y la firma quedaba por DEBAJO de la marca de un token que no lo refleja.
+    it('`iatms` es el instante en que se LEYÓ la persona, no el de firmar (base lenta: la lectura tarda 700 ms)', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] })
+        try {
+            const lectura = 1_790_000_000_900
+            vi.setSystemTime(lectura)
+            mockUser.mockImplementation((async () => {
+                vi.setSystemTime(lectura + 700) // la base tarda
+                return persona()
+            }) as never)
+            const par = await emitirPar({ userId: 'u1', sessionId: 's1' })
+            const c = decodeJwt(par.token)
+            expect(c.iatms).toBe(lectura)
+            expect((c.iat as number) * 1000).toBeGreaterThan(lectura) // `iat` sí es el de la firma (otro segundo)
+        } finally {
+            vi.useRealTimers()
+        }
     })
 
     it('`iatms` evita el rebote: un token pedido tras el evento en el MISMO segundo no cae por debajo de la marca', async () => {
@@ -834,6 +855,57 @@ describe('lo que NO es un robo', () => {
         mockRefresh.findUnique.mockResolvedValue(fila() as never)
 
         expect(await renovar('de-un-despedido')).toEqual({ ok: false, motivo: 'revoked' })
+    })
+})
+
+describe('renovar: la sesión y la baja se miran ANTES que la llave (A.4.1, bandeja de revisión)', () => {
+    const sinLlave = () => persona({ defaultRole: { name: 'OPERADOR', permissions: [] } })
+
+    it('sesión revocada y sin llave: `revoked` (401), no `sin_permiso` (403)', async () => {
+        mockUser.mockResolvedValue(sinLlave() as never)
+        mockSession.findUnique.mockResolvedValue({ revokedAt: new Date('2026-09-01') } as never)
+        mockRefresh.findUnique.mockResolvedValue(fila() as never)
+
+        expect(await renovar('sin-llave-y-sin-sesion')).toEqual({ ok: false, motivo: 'revoked' })
+        expect(mockRefresh.create).not.toHaveBeenCalled()
+        // El refresh no se gastó (sólo se cerró la familia): no hay `usedAt` en ninguna escritura.
+        expect(mockRefresh.updateMany.mock.calls.some((c) => (c[0] as { data: { usedAt?: Date } }).data.usedAt)).toBe(false)
+    })
+
+    it('baja y sin llave: `revoked`, no `sin_permiso`', async () => {
+        mockUser.mockResolvedValue(sinLlave() as never)
+        mockUser.mockResolvedValueOnce({ activo: false } as never)
+        mockRefresh.findUnique.mockResolvedValue(fila() as never)
+
+        expect(await renovar('de-baja-y-sin-llave')).toEqual({ ok: false, motivo: 'revoked' })
+    })
+
+    it('sesión viva y sin llave sigue siendo `sin_permiso`', async () => {
+        mockUser.mockResolvedValue(sinLlave() as never)
+        mockRefresh.findUnique.mockResolvedValue(fila() as never)
+
+        expect(await renovar('sin-llave')).toEqual({ ok: false, motivo: 'sin_permiso' })
+    })
+})
+
+describe('renovar: la base cae DESPUÉS de gastar el refresh', () => {
+    it('lanza ComprobacionNoDisponible (503 en la ruta), no el error crudo (500), y el refresh ya estaba gastado', async () => {
+        mockRefresh.findUnique.mockResolvedValue(fila() as never)
+        mockRefresh.create.mockRejectedValue(new Error('base caída'))
+
+        const e = await renovar('se-cae-despues').catch((x) => x)
+
+        expect(e).toBeInstanceOf(ComprobacionNoDisponible)
+        expect(e.message).toContain('base caída')
+        expect(mockRefresh.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({ where: { id: 'rt1', usedAt: null, revokedAt: null }, data: { usedAt: expect.any(Date) } }),
+        )
+    })
+
+    it('un error que ya es ComprobacionNoDisponible pasa tal cual (no se envuelve dos veces)', async () => {
+        const original = new ComprobacionNoDisponible(new Error('x'))
+        mockRefresh.findUnique.mockRejectedValue(original)
+        expect(await renovar('ya-viene-envuelto').catch((x) => x)).toBe(original)
     })
 })
 

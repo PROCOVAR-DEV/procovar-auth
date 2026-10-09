@@ -7,9 +7,9 @@ import { describe, it, expect, vi } from 'vitest';
 import {
     iniciosDeLaPersona,
     historialDeInicios,
-    limiteDePagina,
+    paginaValida,
+    MAX_LEIDOS,
     POR_PAGINA,
-    TOPE_POR_PAGINA,
     type Apunte,
 } from '../historial-de-inicios';
 
@@ -41,18 +41,37 @@ const ctx = (o: Partial<Parameters<typeof iniciosDeLaPersona>[1]> = {}) => ({
     ...o,
 });
 
-describe('limiteDePagina', () => {
-    it('10 por defecto y 50 como tope duro', () => {
-        expect(limiteDePagina(undefined)).toBe(POR_PAGINA);
-        expect(limiteDePagina(null)).toBe(POR_PAGINA);
-        expect(limiteDePagina('abc')).toBe(POR_PAGINA);
-        expect(limiteDePagina(0)).toBe(POR_PAGINA);
-        expect(limiteDePagina(-5)).toBe(POR_PAGINA);
-        expect(limiteDePagina('7')).toBe(7);
-        expect(limiteDePagina(50)).toBe(50);
-        expect(limiteDePagina(51)).toBe(TOPE_POR_PAGINA);
-        expect(limiteDePagina(1_000_000)).toBe(TOPE_POR_PAGINA);
-        expect(TOPE_POR_PAGINA).toBe(50);
+describe('paginaValida', () => {
+    it('lo que no es un entero >= 1 es la primera: NaN, 0, negativos, decimales, Infinity, texto, null', () => {
+        for (const mala of [NaN, 0, -1, -7, 2.5, 0.9, Infinity, -Infinity, 'abc', '', ' ', '2.5', '-3', '0', 'Infinity', 'NaN', null, undefined]) {
+            expect(paginaValida(mala, 5), String(mala)).toBe(1);
+        }
+    });
+
+    it('una que existe se respeta, venga como número o como texto', () => {
+        expect(paginaValida(1, 5)).toBe(1);
+        expect(paginaValida(3, 5)).toBe(3);
+        expect(paginaValida('3', 5)).toBe(3);
+        expect(paginaValida(5, 5)).toBe(5);
+    });
+
+    it('una enorme (más allá de la última) es la última, sin desbordar: 6, 1e21, 1e309', () => {
+        for (const grande of [6, 99, 1e21, '1e21', Number.MAX_VALUE, '99999999999999999999999']) {
+            expect(paginaValida(grande, 5), String(grande)).toBe(5);
+        }
+        expect(paginaValida(1e21, 1)).toBe(1);
+    });
+
+    it('siempre cae en 1..paginas, también si paginas llegara roto (0, NaN)', () => {
+        for (const paginas of [1, 2, 7]) {
+            for (const pedida of [NaN, 0, -1, 1, 2, 3, 1e21, Infinity, 'x']) {
+                const r = paginaValida(pedida as never, paginas);
+                expect(r).toBeGreaterThanOrEqual(1);
+                expect(r).toBeLessThanOrEqual(paginas);
+                expect(Number.isInteger(r)).toBe(true);
+            }
+        }
+        expect(paginaValida(3, 0)).toBe(1);
     });
 });
 
@@ -65,12 +84,12 @@ describe('iniciosDeLaPersona', () => {
         expect(filas.map((f) => f.id)).toEqual([mios.id]);
     });
 
-    it('el tope se aplica aunque pidan más, y avisa de que hay más', () => {
-        const todos = Array.from({ length: 120 }, (_, i) => web(i + 1, `s${i}`));
-        const grande = iniciosDeLaPersona(todos, ctx({ limite: 1000 }));
-        expect(grande.filas).toHaveLength(TOPE_POR_PAGINA);
-        expect(grande.siguiente).not.toBeNull();
-        expect(iniciosDeLaPersona(todos, ctx()).filas).toHaveLength(POR_PAGINA);
+    it('diez por página; sin pagina pedida es la primera, y dice cuántas hay', () => {
+        const todos = Array.from({ length: 25 }, (_, i) => web(i + 1, `s${i}`));
+        const r = iniciosDeLaPersona(todos, ctx());
+        expect(r.filas).toHaveLength(10);
+        expect(r).toMatchObject({ pagina: 1, paginas: 3, total: 25, porPagina: 10 });
+        expect(POR_PAGINA).toBe(10);
     });
 
     it('más recientes primero, venga como venga la entrada', () => {
@@ -81,16 +100,63 @@ describe('iniciosDeLaPersona', () => {
         expect(filas.map((f) => f.id)).toEqual([b.id, c.id, a.id]);
     });
 
-    it('pagina por cursor: `desde` es la fecha del último visto, sin repetir ni saltar', () => {
+    it('pagina por número: cada página trae las suyas, sin repetir ni saltar, y paginas es el techo', () => {
         const todos = Array.from({ length: 25 }, (_, i) => web(i + 1, `s${i}`));
-        const p1 = iniciosDeLaPersona(todos, ctx());
-        const p2 = iniciosDeLaPersona(todos, ctx({ desde: new Date(p1.siguiente!) }));
-        const p3 = iniciosDeLaPersona(todos, ctx({ desde: new Date(p2.siguiente!) }));
+        const [p1, p2, p3] = [1, 2, 3].map((pagina) => iniciosDeLaPersona(todos, ctx({ pagina })));
         expect([p1.filas.length, p2.filas.length, p3.filas.length]).toEqual([10, 10, 5]);
-        expect(p3.siguiente).toBeNull();
+        expect([p1.pagina, p2.pagina, p3.pagina]).toEqual([1, 2, 3]);
+        for (const p of [p1, p2, p3]) expect(p).toMatchObject({ paginas: 3, total: 25 });
         const ids = [...p1.filas, ...p2.filas, ...p3.filas].map((f) => f.id);
         expect(new Set(ids).size).toBe(25);
         expect(ids).toEqual([...todos].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).map((a) => a.id));
+    });
+
+    it('paginas es exacto en los bordes: 0, 1, 10, 11, 20 y 21 inicios', () => {
+        const de = (n: number) => Array.from({ length: n }, (_, i) => web(i + 1, `s${i}`));
+        const paginas = (n: number) => iniciosDeLaPersona(de(n), ctx()).paginas;
+        expect([0, 1, 10, 11, 20, 21].map(paginas)).toEqual([1, 1, 1, 2, 2, 3]);
+        // Sin inicios: una página vacía, no «página 0 de 0».
+        expect(iniciosDeLaPersona([], ctx())).toMatchObject({ filas: [], pagina: 1, paginas: 1, total: 0 });
+        // Justo diez: la última tiene diez, no cero.
+        expect(iniciosDeLaPersona(de(10), ctx({ pagina: 1 })).filas).toHaveLength(10);
+        expect(iniciosDeLaPersona(de(11), ctx({ pagina: 2 })).filas).toHaveLength(1);
+    });
+
+    it('una pagina rara no rompe ni vacía la lista: la normaliza a una que existe', () => {
+        const todos = Array.from({ length: 25 }, (_, i) => web(i + 1, `s${i}`));
+        const quePagina = (pagina: string | number | null) => {
+            const r = iniciosDeLaPersona(todos, ctx({ pagina }));
+            expect(r.filas.length, String(pagina)).toBeGreaterThan(0);
+            return r.pagina;
+        };
+        expect(['abc', '0', '-1', '2.5', 'Infinity', 'NaN', NaN, 0, -3, 1.5, null, ''].map(quePagina)).toEqual(Array(12).fill(1));
+        expect(['4', 4, '1e21', 1e21, 999].map(quePagina)).toEqual([3, 3, 3, 3, 3]);
+        expect(quePagina('2')).toBe(2);
+    });
+
+    it('el recuento sale de la lista ya deduplicada: un auth.login repetido no cuenta ni parte páginas', () => {
+        // 11 inicios web + sus 11 eco de auth.login (a menos de 30 s) = 11, no 22 → 2 páginas, no 3.
+        const webs = Array.from({ length: 11 }, (_, i) => web(i * 5 + 1, `s${i}`));
+        const ecos = webs.map((w) => apunte({ action: 'auth.login', createdAt: new Date(w.createdAt.getTime() + 400) }));
+        // Y 10 aparatos con su eco de auth.signin.web (misma sesión): tampoco duplican.
+        const apks = Array.from({ length: 10 }, (_, i) =>
+            apunte({ action: 'auth.apk.login', createdAt: hace(100 + i), meta: { sessionId: `a${i}` } }),
+        );
+        const ecosApk = apks.map((a, i) => web(100 + i, `a${i}`));
+        const todos = [...ecos, ...ecosApk, ...webs, ...apks];
+        const p1 = iniciosDeLaPersona(todos, ctx({ pagina: 1 }));
+        const p3 = iniciosDeLaPersona(todos, ctx({ pagina: 3 }));
+        expect(p1).toMatchObject({ total: 21, paginas: 3 });
+        expect(p3.pagina).toBe(3);
+        expect(p3.filas).toHaveLength(1);
+        const ids = [1, 2, 3].flatMap((pagina) => iniciosDeLaPersona(todos, ctx({ pagina })).filas.map((f) => f.id));
+        expect(new Set(ids).size).toBe(21);
+    });
+
+    it('los ajenos no cuentan en total ni en paginas', () => {
+        const mios = Array.from({ length: 3 }, (_, i) => web(i + 1, `s${i}`));
+        const ajenos = Array.from({ length: 30 }, (_, i) => web(i + 1, `x${i}`, { userId: 'beto' }));
+        expect(iniciosDeLaPersona([...ajenos, ...mios], ctx())).toMatchObject({ total: 3, paginas: 1 });
     });
 
     it('sólo los últimos 90 días', () => {
@@ -196,14 +262,34 @@ describe('historialDeInicios (contra una base falsa que respeta el where)', () =
 
     it('sin persona (cadena vacía) no consulta nada: un where sin userId sería «todas»', async () => {
         const { db, auditLog, session } = baseFalsa([web(1, 's')]);
-        expect(await historialDeInicios('', { ahora: AHORA }, db)).toEqual({ filas: [], siguiente: null });
+        expect(await historialDeInicios('', { ahora: AHORA }, db)).toEqual({
+            filas: [],
+            pagina: 1,
+            paginas: 1,
+            total: 0,
+            porPagina: POR_PAGINA,
+        });
         expect(auditLog.findMany).not.toHaveBeenCalled();
         expect(session.findMany).not.toHaveBeenCalled();
     });
 
-    it('el tope también aguanta por esta vía', async () => {
-        const { db } = baseFalsa(Array.from({ length: 80 }, (_, i) => web(i + 1, `s${i}`)));
-        const r = await historialDeInicios('ana', { ahora: AHORA, limite: 9999 }, db);
-        expect(r.filas).toHaveLength(TOPE_POR_PAGINA);
+    it('pagina por esta vía y normaliza la que llega rara', async () => {
+        const { db } = baseFalsa(Array.from({ length: 25 }, (_, i) => web(i + 1, `s${i}`)));
+        const p3 = await historialDeInicios('ana', { ahora: AHORA, pagina: '3' }, db);
+        expect(p3).toMatchObject({ pagina: 3, paginas: 3, total: 25 });
+        expect(p3.filas).toHaveLength(5);
+        for (const rara of ['abc', '0', '-1', '2.5', 'Infinity', null]) {
+            expect((await historialDeInicios('ana', { ahora: AHORA, pagina: rara }, db)).pagina, String(rara)).toBe(1);
+        }
+        expect((await historialDeInicios('ana', { ahora: AHORA, pagina: '1e21' }, db)).pagina).toBe(3);
+    });
+
+    it('lee como mucho 500 apuntes (tope duro): ni el total ni las páginas pasan de ahí', async () => {
+        const { db, auditLog } = baseFalsa(Array.from({ length: 600 }, (_, i) => web(i + 1, `s${i}`)));
+        const r = await historialDeInicios('ana', { ahora: AHORA, pagina: '9999' }, db);
+        expect(MAX_LEIDOS).toBe(500);
+        expect(auditLog.findMany.mock.calls[0][0].take).toBe(500);
+        expect(r).toMatchObject({ total: 500, paginas: 50, pagina: 50 });
+        expect(r.filas).toHaveLength(10);
     });
 });

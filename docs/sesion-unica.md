@@ -208,10 +208,12 @@ una dependencia de arranque.
   `SCAN`**, porque lo publicado mientras estabas desconectado se perdió. Eso es todo.
 - **Si Redis estaba caído cuando Accesos publicó**, ese aviso puede perderse (un fallo de Redis nunca
   rompe la acción de quien cerró sesión). Para `baja` y `revocada` Accesos lo deja en el registro en
-  nivel `error` con los ids internos de las personas y reintenta UNA vez a los ~2 s (con el mismo
-  `tms`, sin retrasar su respuesta); el resto de motivos sólo deja un aviso (`warn`) sin ids. Si el
-  reintento también falla, esa persona conserva su sesión en tu aplicación hasta que la cookie
-  caduque. Es el límite conocido del diseño, y no se arregla con polling.
+  nivel `error` con los ids internos de las personas y lo reintenta en segundo plano (backoff de 2, 5,
+  15 y 30 s y luego cada 60 s, hasta 10 minutos; con el mismo `tms`, sin retrasar su respuesta: ver la
+  nota del 09/10/2026 al final); el resto de motivos sólo deja un aviso (`warn`) sin ids. Si Redis no
+  vuelve en esa ventana (o Accesos se reinicia con avisos pendientes), esa persona conserva su sesión
+  en tu aplicación hasta que la cookie caduque. Es el límite conocido del diseño, y no se arregla con
+  polling.
 
 ## Qué NO hacer
 
@@ -434,3 +436,72 @@ teléfono) es web; la APK y el escritorio de Reparto son dispositivos con su pro
 
 `/revoke-session` ya NO publica `todo` siempre: `hooks-de-sesion.ts` mira qué sesión se cierra
 (token de otra persona o inexistente: nada; sesión con `clientId` `delivery-apk`: nada; web: `web`).
+
+---
+
+## Nota (09/10/2026): endurecimiento tras las auditorías
+
+Seis cambios en Accesos que afectan a quien consume `verify-session`, `verify`, `exchange` o el aviso.
+
+### 1. `verify-session` y `verify` ya miran `activo`
+
+Una persona dada de baja (`activo = false`) con la sesión ya abierta seguía valiendo para las
+aplicaciones que sólo llaman a `verify-session`: better-auth no mira esa columna.
+
+- `POST /api/auth/verify-session` → **401 `{ "error": "invalid_session" }`** si `user.activo === false`
+  (la misma forma que una sesión inválida; los demás 401, `invalid_session` y `session_revoked`, no cambian).
+- `POST /api/auth/verify` (JWT) → **401 `{ "valid": false, "error": "user_inactive" }`** si el token nombra
+  (claim `sub` o `userId`) a una persona de baja. Un `sub` que no es de nadie (p. ej. el clientId de un
+  JWT de plataforma) no encuentra fila y sigue valiendo. Si la base no contesta al comprobarlo:
+  **503 `{ "valid": false, "error": "service_unavailable" }`** (cerrado, nunca `valid: true`).
+
+### 2. Redis caído: la firma de servicio falla CERRADA y RÁPIDO
+
+El anti-replay del nonce (`X-Nonce`, `SET NX` en Redis) necesita Redis. Antes, con Redis caído,
+cualquier endpoint con firma de servicio (`verify-session`, `exchange`, `sign`…) daba **500
+`internal_error` tras ~4,4 s**. Ahora:
+
+- **503 `{ "error": "service_unavailable" }` en menos de 1 s** (la comprobación espera a Redis como
+  mucho `NONCE_ESPERA_MAX_MS` = 800 ms; el tiempo de espera de los demás usos de Redis no cambia).
+- No deja pasar la petición (sin poder saber si el nonce es un replay, se rechaza) y no se traga el
+  error: queda en el registro (`[service-auth] Redis no responde…`). Un nonce repetido sigue siendo
+  401 `replay`.
+- Tu cliente debe tratar el 503 como «reintenta en unos segundos», no como sesión inválida.
+
+### 3. Reintento durable del aviso `baja` / `revocada`
+
+Antes, si Redis tardaba más de ~2 s en volver, el aviso grave se perdía (un solo reintento). Ahora
+(`src/lib/eventos-de-sesion.ts`), sólo para `baja` y `revocada`:
+
+- Cola **en memoria** acotada a **1000** avisos; el que no cabe se registra como perdido (`error`, con ids).
+- Reintentos con espera de **2, 5, 15 y 30 s y luego cada 60 s, hasta 10 minutos** desde el primer fallo;
+  después se da por vencido con `logger.error` y los ids internos. Los intermedios son `warn` sin ids.
+- Sin duplicados por (tipo, alcance, motivo, personas): si el mismo aviso se repite mientras espera, no
+  se encola dos veces y sale con el `tms` más reciente. Siempre se publica con el `tms` **original**
+  (la marca sólo sube, así que publicarlo tarde no resucita nada) y **una sola vez**.
+- Nunca bloquea ni retrasa la respuesta del cierre/baja/revocación: es un temporizador aparte con
+  `unref()` (no impide apagar el proceso).
+- Es memoria: un reinicio de Accesos con avisos pendientes los pierde (queda el `error` con los ids).
+
+### 4. `exchange` manda también `codigo`
+
+`POST /api/auth/exchange` → `memberships[].organization` lleva ahora **`codigo`** (`organization.codigo`,
+p. ej. `CAM`, `HAB`, `PLS`; `null` si la sucursal no tiene) **además** de `id`, `name`, `slug` y `logo`
+(que no cambian). El slug no siempre es el código en minúsculas (`PLS` tiene slug `palma-soriano`):
+quien necesite el código debe leer `codigo`, no deducirlo del slug.
+
+### 5. Índice por `userId` en `session` y purga de lo caducado
+
+- `session` tiene `@@index([userId])` (migración `20261009130000_indice_session_userid`,
+  `CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session"("userId")`).
+- `purgarCaducadas()` (`src/lib/purga-caducadas.ts`) borra `session` y `refresh_token` con
+  `expiresAt < ahora - 30 días`, en lotes de 1000 (hasta 20 pasadas por tabla y ejecución). Una fila
+  de `refresh_token` ya gastada se conserva para reconocer la reutilización (robo) mientras el token
+  pudiera estar vivo; con `expiresAt` 30 días en el pasado ya no sirve a nadie. Una fila usada o
+  revocada pero NO caducada nunca se toca. Corre al arrancar (sin bloquear el arranque ni tumbarlo
+  si falla; `instrumentation.ts`) y cada 24 h.
+
+### 6. Borrados
+
+`src/app/api/events/route.ts` y `src/hooks/use-org-events.ts` (huérfanos de qb, con un *bearer* de
+desarrollo por defecto) y la variable `QB_BACKEND_URL` de `docker-compose.yml`.

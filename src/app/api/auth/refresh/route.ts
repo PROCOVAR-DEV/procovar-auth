@@ -52,6 +52,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 import { rateLimit } from '@/lib/rate-limit';
+import { conTope } from '@/lib/con-tope';
 import { logger } from '@/lib/logger';
 import { CLIENTE_POR_DEFECTO, desdeDondePide, renovar } from '@/lib/apk-tokens';
 import { ComprobacionNoDisponible, CUERPO_NO_DISPONIBLE, CUERPO_SIN_PERMISO } from '@/lib/puerta-de-entrada';
@@ -59,8 +60,9 @@ import { conCors, preflight } from '@/lib/cors-apk';
 
 const BodySchema = z
     .object({
-        refresh_token: z.string().min(1).optional(),
-        refresh: z.string().min(1).optional(),
+        // El refresh de verdad mide 43 caracteres: el tope sólo evita que un cuerpo enorme pase zod y se hashee.
+        refresh_token: z.string().min(1).max(256).optional(),
+        refresh: z.string().min(1).max(256).optional(),
     })
     .refine((b) => !!(b.refresh_token ?? b.refresh), { message: 'falta el refresh' });
 
@@ -81,12 +83,15 @@ async function manejar(req: NextRequest) {
     // limitador no contesta se sigue adelante — cerrar por eso sería un 401 con
     // forma de "sesión muerta" en plena calle.
     try {
-        const rl = await rateLimit({
-            scope: 'apk-refresh',
-            identifier: aparato.ip ?? 'sin-ip',
-            capacity: 120,
-            refillPerSec: 2,
-        });
+        // `conTope`: con Redis colgado no se espera a que se rinda el cliente (~4 s): se sigue a los 800 ms.
+        const rl = await conTope(
+            rateLimit({
+                scope: 'apk-refresh',
+                identifier: aparato.ip ?? 'sin-ip',
+                capacity: 120,
+                refillPerSec: 2,
+            })
+        );
         if (!rl.allowed) return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
     } catch (e) {
         logger.warn('[auth/refresh] el limitador no contesta; se sigue', {

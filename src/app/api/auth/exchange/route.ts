@@ -76,13 +76,15 @@ export const POST = withServiceAuth(async (req: NextRequest, ctx) => {
             where: { userId: session.user.id },
             select: {
                 id: true, role: true, createdAt: true,
-                organization: { select: { id: true, name: true, slug: true, logo: true } },
+                organization: { select: { id: true, name: true, slug: true, logo: true, codigo: true } },
             },
             orderBy: { createdAt: 'desc' },
         });
         // `role` is internal only (better-auth stores roles comma-joined). Expose the
         // parsed `roles` array + the `organization` object; drop the redundant singular
         // `role` and `organizationId` (org.id covers it).
+        // `organization.codigo` (CAM, HAB, PLS…) va ADEMÁS de `slug`, no en su lugar: el slug no
+        // siempre es el código en minúsculas (PLS = `palma-soriano`), y la web de Reparto lee el código.
         const memberships = memberRows.map(({ role, ...m }) => ({
             ...m,
             roles: (role ?? '').split(',').map((r) => r.trim()).filter(Boolean),

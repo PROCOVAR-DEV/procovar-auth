@@ -161,11 +161,11 @@ Arreglos tras la revisión independiente de la campana (08/10/2026; el código e
   campana tiene una región `role="status"` con «Avisos: N sin leer» al cargar, el diálogo se
   nombra con su `<h2>` (`aria-labelledby`), los textos con `line-clamp` llevan `break-words` y
   el id del detalle se codifica en la ruta.
-- **Huérfanos, a decidir por Jose (no se tocaron):** `src/app/api/events/route.ts` y
-  `src/hooks/use-org-events.ts` (restos del centro de eventos de qb). La ruta usa un *bearer*
-  por defecto de desarrollo si falta `BEARER_TOKEN`, y reenvía un flujo SSE de `QB_BACKEND_URL`,
-  que no existe en Procovar. Mientras nadie los use, lo prudente es borrarlos; no los usa la
-  campana (hay una prueba que prohíbe `EventSource` ahí).
+- **Huérfanos BORRADOS (09/10/2026):** `src/app/api/events/route.ts` y `src/hooks/use-org-events.ts`
+  (restos del centro de eventos de qb; nadie los llamaba). La ruta usaba un *bearer* por defecto de
+  desarrollo si faltaba `BEARER_TOKEN` y reenviaba un flujo SSE de `QB_BACKEND_URL`, que no existe en
+  Procovar. Se quitó también `QB_BACKEND_URL` de `docker-compose.yml`. La campana no los usaba (una
+  prueba prohíbe `EventSource` ahí).
 
 ### 1.6 Tiempo real
 

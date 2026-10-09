@@ -148,11 +148,21 @@ describe('GET /api/auth/callback', () => {
         expect(r.headers.get('location')).toBe('https://app.example.com/auth/callback?code=CODIGO')
     })
 
-    it('un clientId sin mapa (asignacion) entra como hoy, sin tocar la base de personas', async () => {
+    // BAJO-4 (auditoría A1): la base de personas SÍ se toca, y sólo para mirar la baja (no se pide ninguna llave).
+    it('un clientId sin mapa (asignacion) entra como hoy: no pide llave, sólo se mira que la cuenta no esté de baja', async () => {
         flujo('asignacion')
         const r = await lanzar()
         expect(r.headers.get('location')).toBe('https://app.example.com/auth/callback?code=CODIGO')
-        expect(db.user.findUnique).not.toHaveBeenCalled()
+        expect(db.user.findUnique).toHaveBeenCalledTimes(1)
+        expect(db.user.findUnique.mock.calls[0][0].select).toMatchObject({ activo: true })
+    })
+
+    it('un clientId sin mapa (asignacion) con la cuenta de BAJA: no se acuña código, va a /sin-permiso', async () => {
+        flujo('asignacion')
+        db.user.findUnique.mockResolvedValue({ isSystemAdmin: true, activo: false, defaultRole: null, members: [] })
+        const r = await lanzar()
+        expect(codigos.createAuthCode).not.toHaveBeenCalled()
+        expect(destino(r).pathname).toBe('/sin-permiso')
     })
 
     describe('la galleta de flujo NO está firmada: se vuelve a validar como lo hizo /api/flow', () => {

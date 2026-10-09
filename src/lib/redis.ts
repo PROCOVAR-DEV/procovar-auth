@@ -38,7 +38,17 @@ const DB = {
 
 export type RedisScope = keyof typeof DB;
 
-function buildOptions(db: number): RedisOptions {
+/**
+ * Lo más que UN comando del cliente `locks` espera respuesta. Ese cliente sólo sirve al limitador
+ * de las puertas de la APK y al anti-replay del nonce (un `EVAL` y un `SET NX`, de milisegundos).
+ * Sin tope, con los centinelas inalcanzables el comando no rechazaba NUNCA (se quedaba en la cola
+ * offline) y `/entrega`, `/refresh` y `/token` se colgaban. Los demás clientes no lo llevan: el de
+ * `sessions` duplica a uno de suscripción, que no debe caducar. Las puertas esperan menos todavía
+ * (`conTope`, 800 ms): esto es la red de seguridad para lo que no pase por ella.
+ */
+export const COMANDO_LOCKS_MAX_MS = 1500;
+
+function buildOptions(db: number, commandTimeout?: number): RedisOptions {
     return {
         sentinels: SENTINELS,
         name: NAME,
@@ -48,6 +58,7 @@ function buildOptions(db: number): RedisOptions {
         keyPrefix: PREFIX,
         enableAutoPipelining: true,
         maxRetriesPerRequest: 3,
+        commandTimeout,
         lazyConnect: false,
         retryStrategy: (times) => Math.min(times * 200, 2000),
         reconnectOnError: (err) => {
@@ -72,7 +83,7 @@ export function getRedis(scope: RedisScope = 'sessions'): Redis {
         );
     }
     if (!store[scope]) {
-        const client = new Redis(buildOptions(DB[scope]));
+        const client = new Redis(buildOptions(DB[scope], scope === 'locks' ? COMANDO_LOCKS_MAX_MS : undefined));
         client.on('error', (err) => {
             logger.warn(`[redis:${scope}] error`, { msg: err.message });
         });

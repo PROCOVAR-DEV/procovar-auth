@@ -1,0 +1,12 @@
+-- Índice por persona en "session".
+--
+-- "session" sólo tenía el índice único de "token" (el de la clave primaria aparte). Todo lo que
+-- pregunta por las sesiones de UNA persona —el panel «Dispositivos y sesiones», cerrar las demás o
+-- todas, la baja, el cambio de contraseña, la comprobación de "refresh_token" por sesión— recorría
+-- la tabla entera, y la tabla sólo crece (no se purgaba: ver src/lib/purga-caducadas.ts).
+--
+-- IF NOT EXISTS: la migración se puede repetir sin romper nada.
+-- Sin CONCURRENTLY a propósito: Prisma ejecuta cada migración dentro de una transacción y
+-- CONCURRENTLY no puede ir dentro de una. La tabla es pequeña (miles de filas): el bloqueo de
+-- escritura mientras se construye el índice dura milisegundos.
+CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session"("userId");

@@ -30,9 +30,35 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { getRedis } from './redis';
 import { logger } from './logger';
+import { REDIS_ESPERA_MAX_MS, conTope } from './con-tope';
 
 const MAX_SKEW_SECONDS = Number(process.env.SERVICE_AUTH_MAX_SKEW ?? 300);
 const NONCE_KEY = (clientId: string, nonce: string) => `svc:nonce:${clientId}:${nonce}`;
+
+/**
+ * Lo más que la comprobación anti-replay espera a Redis (`conTope`). El cliente compartido reintenta ~4 s
+ * antes de rendirse (sirve a los demás usos), y una petición de servicio no puede esperar tanto:
+ * pasado este tiempo se rechaza con 503. NO cambia el tiempo de espera de los otros usos de Redis.
+ */
+export const NONCE_ESPERA_MAX_MS = REDIS_ESPERA_MAX_MS;
+
+/**
+ * Reserva el nonce (SET NX). `true` = nuevo, `false` = ya usado (replay).
+ * Sin Redis NO se puede saber si es un replay: falla CERRADO (503 `service_unavailable`, que el
+ * llamante puede reintentar) en vez de dejar pasar la petición o dar un 500 tras 4 s.
+ */
+async function reservarNonce(clientId: string, nonce: string): Promise<boolean> {
+    try {
+        const orden = getRedis('locks').set(NONCE_KEY(clientId, nonce), '1', 'EX', MAX_SKEW_SECONDS, 'NX');
+        return (await conTope(orden, NONCE_ESPERA_MAX_MS)) === 'OK';
+    } catch (e) {
+        logger.error('[service-auth] Redis no responde: anti-replay no disponible, se rechaza', {
+            clientId,
+            error: (e as Error).message,
+        });
+        throw new ServiceAuthError('service_unavailable', 'Anti-replay store unavailable', 503);
+    }
+}
 
 export class ServiceAuthError extends Error {
     constructor(public code: string, message: string, public status = 401) {
@@ -170,9 +196,7 @@ export async function verifyRequest(input: VerifyInput): Promise<VerifiedService
     }
 
     // Anti-replay: nonce must be unique per client within the skew window.
-    const redis = getRedis('locks');
-    const ok = await redis.set(NONCE_KEY(clientId, nonce), '1', 'EX', MAX_SKEW_SECONDS, 'NX');
-    if (ok !== 'OK') {
+    if (!(await reservarNonce(clientId, nonce))) {
         throw new ServiceAuthError('replay', 'Nonce already used');
     }
 

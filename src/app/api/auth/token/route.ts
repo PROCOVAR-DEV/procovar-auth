@@ -61,6 +61,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { rateLimit } from '@/lib/rate-limit';
+import { conTope } from '@/lib/con-tope';
 import { audit } from '@/lib/audit';
 import { logger } from '@/lib/logger';
 import {
@@ -141,7 +142,8 @@ async function manejar(req: NextRequest) {
     // única puerta que acepta contraseñas, quedarse sin límite es peor que
     // quedarse sin servicio un rato.
     try {
-        const [porIp, porCuenta] = await Promise.all([
+        // `conTope`: con Redis colgado, rateLimit no rechaza nunca; sin él esta puerta no contestaba.
+        const [porIp, porCuenta] = await conTope(Promise.all([
             rateLimit({
                 scope: 'apk-token-ip',
                 identifier: aparato.ip ?? 'sin-ip',
@@ -154,7 +156,7 @@ async function manejar(req: NextRequest) {
                 capacity: 8,
                 refillPerSec: 0.033, // uno cada 30 s en régimen
             }),
-        ]);
+        ]));
         if (!porIp.allowed || !porCuenta.allowed) {
             audit({
                 action: 'auth.apk.rate_limited',

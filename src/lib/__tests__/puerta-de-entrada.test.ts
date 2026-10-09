@@ -111,7 +111,7 @@ describe('puedeEntrar', () => {
     })
 
     it('un clientId sin mapa pasa como hoy, y ni siquiera toca la base', async () => {
-        for (const c of ['asignacion', 'procovar-sync', 'unknown', 'procovar-crm', '__proto__', 'constructor', '', null, undefined]) {
+        for (const c of ['unknown', 'procovar-crm', '__proto__', 'constructor', '', null, undefined]) {
             expect(await puedeEntrar('u1', c)).toBe(true)
         }
         expect(db.user.findUnique).not.toHaveBeenCalled()
@@ -197,6 +197,44 @@ describe('una cuenta de baja (activo=false): la APK la deja pasar (la cierra res
         db.user.findUnique.mockResolvedValue(persona({ activo: false, porDefecto: ['pedido.entrar'] }))
         for (const c of clientes) expect(await comprobarEntrada('u1', c, { bajaPasa: false }), c).toBe(false)
         expect(await comprobarEntrada('u1', 'pedido')).toBe(true)
+    })
+
+    // BAJO-4 (auditoría A1): el atajo de «el cliente no tiene llave» salía con `true` ANTES de mirar la baja.
+    // Los clientes decididos como SIN_LLAVE (asignacion, crm, rutas, portal, procovar-sync...) no tienen
+    // llave, pero una baja tampoco debe canjear un código de ellos. Los ids que no están en ninguna lista
+    // (erratas) siguen pasando sin tocar la base (ver «un clientId sin mapa pasa como hoy»).
+    describe('clientes SIN_LLAVE: la baja se mira antes del atajo (WEB), la APK sigue pasando', () => {
+        const bajas = () => [persona({ activo: false }), persona({ activo: false, admin: true }), persona({ activo: false, porDefecto: [...new Set(Object.values(LLAVE_DEL_CLIENTE))] })]
+
+        it('la lista no está vacía y trae los cinco del informe', () => {
+            expect(SIN_LLAVE).toEqual(expect.arrayContaining(['asignacion', 'crm', 'rutas', 'portal', 'procovar-sync']))
+        })
+
+        for (const c of SIN_LLAVE) {
+            it(`${c}: una baja NO entra por la web (puedeEntrar y comprobarEntrada con bajaPasa:false), tenga lo que tenga`, async () => {
+                for (const baja of bajas()) {
+                    db.user.findUnique.mockResolvedValue(baja)
+                    expect(await puedeEntrar('u1', c), c).toBe(false)
+                    expect(await comprobarEntrada('u1', c, { bajaPasa: false }), c).toBe(false)
+                }
+            })
+
+            it(`${c}: una cuenta activa (con o sin llaves) sigue entrando por la web, y la baja sigue pasando por la APK`, async () => {
+                db.user.findUnique.mockResolvedValue(persona({ activo: true }))
+                expect(await puedeEntrar('u1', c), c).toBe(true)
+                expect(await comprobarEntrada('u1', c, { bajaPasa: false }), c).toBe(true)
+                db.user.findUnique.mockResolvedValue(persona({ activo: false }))
+                db.user.findUnique.mockClear()
+                expect(await comprobarEntrada('u1', c), c).toBe(true) // APK: bajaPasa por defecto, ni toca la base
+                expect(db.user.findUnique).not.toHaveBeenCalled()
+            })
+
+            it(`${c}: si la base falla, la web NO entra (cierra) y el canje lanza ComprobacionNoDisponible`, async () => {
+                db.user.findUnique.mockRejectedValue(new Error('conexión caída'))
+                expect(await puedeEntrar('u1', c), c).toBe(false)
+                await expect(comprobarEntrada('u1', c, { bajaPasa: false })).rejects.toBeInstanceOf(ComprobacionNoDisponible)
+            })
+        }
     })
 
     it('una cuenta ACTIVA no cambia: sin la llave no entra, con ella sí, la administradora entra a todo', async () => {

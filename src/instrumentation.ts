@@ -21,4 +21,12 @@ export async function register() {
   } catch (e) {
     console.error('[clients] auto-sync failed (non-fatal):', e)
   }
+  // Purga de sesiones y refresh caducados (hace más de 30 días): una ahora, sin esperarla, y cada 24 h.
+  try {
+    const { arrancarPurga } = await import('@/lib/purga-caducadas')
+    arrancarPurga()
+    console.log('[purga] programada: al arrancar y cada 24 h')
+  } catch (e) {
+    console.error('[purga] no se pudo programar (non-fatal):', e)
+  }
 }

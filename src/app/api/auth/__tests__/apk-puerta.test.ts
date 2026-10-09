@@ -188,6 +188,105 @@ describe('POST /api/auth/refresh — la puerta', () => {
         expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.apk.denied' }))
     })
 
+    // A.4.1 de `delivery-logistica/docs/bandeja-de-revision.md`: la sesión y la baja se miran ANTES que la
+    // llave. Con el orden viejo, quien perdió la llave Y tenía la sesión revocada recibía un 403 «de buena fe»
+    // y la app se ponía a entregar su cola a revisión sin sesión con la que hacerlo.
+    it('sesión REVOCADA y sin la llave: 401, NO 403 sin_permiso; sin par, refresh sin gastar y sin mirar la llave', async () => {
+        const fila = filaDeRefresh()
+        db.user.findUnique.mockResolvedValue(persona(['pedido.entrar']))
+        db.session.findUnique.mockResolvedValue({ revokedAt: new Date('2026-09-01') })
+
+        const r = await pedirRefresh()
+
+        expect(r.status).toBe(401)
+        expect(r.body).toEqual({ error: 'invalid_refresh' })
+        expect(r.body.codigo).toBeUndefined()
+        expect(fila.usedAt).toBeNull()
+        expect(db.refreshToken.create).not.toHaveBeenCalled()
+        // No llegó a la llave: ni se consultó a la persona ni se apuntó un «denegado por permiso».
+        expect(db.user.findUnique).not.toHaveBeenCalled()
+        expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.apk.denied' }))
+        // Y se cierra la familia, como siempre que se encuentra la sesión muerta.
+        expect(db.session.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({ where: { id: 's1', revokedAt: null }, data: { revokedAt: expect.any(Date), expiresAt: expect.any(Date) } }),
+        )
+    })
+
+    it('...también por la vía de la gracia: sesión revocada y sin llave, 401 y la gracia sin gastar', async () => {
+        const fila = filaDeRefresh({ usedAt: new Date(Date.now() - 10_000) })
+        db.user.findUnique.mockResolvedValue(persona([]))
+        db.session.findUnique.mockResolvedValue({ revokedAt: new Date('2026-09-01') })
+
+        const r = await pedirRefresh()
+
+        expect(r.status).toBe(401)
+        expect(fila.graceUsedAt).toBeNull()
+        expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.apk.denied' }))
+    })
+
+    it('la sesión ya no existe y no hay llave: 401 también', async () => {
+        filaDeRefresh()
+        db.user.findUnique.mockResolvedValue(persona([]))
+        db.session.findUnique.mockResolvedValue(null)
+        expect((await pedirRefresh()).status).toBe(401)
+    })
+
+    it('sesión viva y sin la llave sigue siendo 403 sin_permiso: lo que significa el 403 es «tienes sesión, no tienes llave»', async () => {
+        filaDeRefresh()
+        db.user.findUnique.mockResolvedValue(persona([]))
+        expect((await pedirRefresh()).status).toBe(403)
+    })
+
+    it('baja y sin la llave: 401, y no se llega a la llave (ni «denegado por permiso»)', async () => {
+        const fila = filaDeRefresh()
+        db.user.findUnique.mockResolvedValue(persona([], { activo: false }))
+        expect((await pedirRefresh()).status).toBe(401)
+        expect(fila.usedAt).toBeNull()
+        expect(audit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.apk.denied' }))
+    })
+
+    describe('la base cae DESPUÉS de gastar el refresh: 503, no 500', () => {
+        it('al emitir el par (create): 503 comprobacion_no_disponible, el refresh YA está gastado, y el reintento recibe su par por la gracia', async () => {
+            const fila = filaDeRefresh()
+            db.user.findUnique.mockResolvedValue(persona(['delivery.entrar']))
+            db.refreshToken.create.mockRejectedValueOnce(new Error('base caída'))
+
+            const r = await pedirRefresh()
+
+            expect(r.status).toBe(503)
+            expect(r.body).toEqual({ error: 'comprobacion_no_disponible' })
+            expect(r.body.token).toBeUndefined()
+            expect(fila.usedAt).toBeInstanceOf(Date) // se gastó antes de caer: por eso hace falta el 503
+
+            const otra = await pedirRefresh() // vuelve la base: el mismo refresh, dentro de la gracia
+            expect(otra.status).toBe(200)
+            expect(otra.body.token).toEqual(expect.any(String))
+            expect(fila.graceUsedAt).toBeInstanceOf(Date)
+        })
+
+        it('al estirar la sesión (session.updateMany tras emitir): 503', async () => {
+            filaDeRefresh()
+            db.user.findUnique.mockResolvedValue(persona(['delivery.entrar']))
+            db.session.updateMany.mockRejectedValueOnce(new Error('base caída'))
+
+            const r = await pedirRefresh()
+
+            expect(r.status).toBe(503)
+            expect(r.body).toEqual({ error: 'comprobacion_no_disponible' })
+        })
+
+        it('por la vía de la gracia (create tras reclamarla): 503', async () => {
+            filaDeRefresh({ usedAt: new Date(Date.now() - 10_000) })
+            db.user.findUnique.mockResolvedValue(persona(['delivery.entrar']))
+            db.refreshToken.create.mockRejectedValueOnce(new Error('base caída'))
+
+            const r = await pedirRefresh()
+
+            expect(r.status).toBe(503)
+            expect(r.body).toEqual({ error: 'comprobacion_no_disponible' })
+        })
+    })
+
     describe('la llave que se pide es la del cliente GUARDADO en la fila', () => {
         it('una fila de procovar-rutas se renueva con rutas.entrar, no con delivery.entrar', async () => {
             filaDeRefresh({ clientId: 'procovar-rutas' })
