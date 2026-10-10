@@ -181,3 +181,10 @@ describe('aplicacionesConAcceso: todas, con `permitida`', () => {
     })
 })
 
+
+describe('la tarjeta de Delivery lleva a Reparto', () => {
+    it('apunta a reparto.procovar.cloud y no al delivery viejo (retirado)', () => {
+        const tarjeta = APLICACIONES_DE_LA_CASA.find((a) => a.clientId === 'delivery')
+        expect(tarjeta?.href).toBe('https://reparto.procovar.cloud')
+    })
+})

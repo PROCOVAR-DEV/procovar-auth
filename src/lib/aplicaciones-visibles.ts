@@ -72,7 +72,8 @@ export const APLICACIONES_DE_LA_CASA: Destino[] = [
     },
     {
         clientId: 'delivery',
-        href: 'https://delivery.procovar.cloud',
+        // Reparto (`reparto.procovar.cloud`), no el delivery viejo: el de `delivery.procovar.cloud` se retiró.
+        href: 'https://reparto.procovar.cloud',
         icono: 'lucide:truck',
         titulo: 'Delivery',
         descripcion: 'Reparto y planificación de rutas.',
