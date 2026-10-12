@@ -118,6 +118,12 @@ const GESTOR_KEYS = [
 const VENDE = 'vendedor.codigo'
 
 /**
+ * Entrar al CRM: DESARROLLADOR, SUPER ADMIN y ADMINISTRADOR (por `allKeys()`), SUPERVISOR y
+ * GESTOR. Nadie más (Jose, 12/10/2026). Fuera de GESTOR_KEYS porque OPERADOR las hereda.
+ */
+const CRM = 'crm.entrar'
+
+/**
  * El Operador factura: lee los pedidos de su sucursal, los completa y copia los
  * datos al sistema de facturación. Y nada más.
  *
@@ -218,6 +224,8 @@ const GERENTE_EXCLUIDOS = new Set<string>([
   // Reparto ya no es suyo (08/10/2026). El Gerente se sirve de `allKeys()`, así que
   // sin esto seguiría recibiendo cada llave de Reparto que se añada al catálogo.
   ...REPARTO_KEYS,
+  // El CRM tampoco (12/10/2026): entra el Administrador, no el Gerente.
+  CRM,
   // Repartir accesos es del Administrador.
   'member.invite',
   'member.remove',
@@ -258,9 +266,9 @@ export function systemRolePermissionKeys(role: string): string[] {
     case 'SUPER ADMIN': return allKeys().filter((k) => !SOLO_DESARROLLADOR.has(k))
     case 'ADMINISTRADOR': return allKeys().filter((k) => !ADMIN_EXCLUIDOS.has(k) && !NO_VENDEN.has(k) && !SOLO_DESARROLLADOR.has(k))
     case 'GERENTE': return allKeys().filter((k) => !GERENTE_EXCLUIDOS.has(k) && !NO_VENDEN.has(k) && !SOLO_DESARROLLADOR.has(k))
-    case 'SUPERVISOR': return [...new Set([...SUPERVISOR_KEYS, VENDE])]
+    case 'SUPERVISOR': return [...new Set([...SUPERVISOR_KEYS, VENDE, CRM])]
     case 'OPERADOR': return [...new Set(OPERADOR_KEYS)]
-    case 'GESTOR': return [...GESTOR_KEYS, VENDE]
+    case 'GESTOR': return [...GESTOR_KEYS, VENDE, CRM]
     /*
      * La económica: AFT entero y nada más.
      *

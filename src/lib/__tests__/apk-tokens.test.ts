@@ -36,6 +36,7 @@ vi.mock('@/lib/logger', () => ({
 }))
 
 import {
+    CLIENTES_APK,
     ErrorDeIdentidad,
     SEGUNDOS_ACCESO,
     SEGUNDOS_DE_GRACIA,
@@ -48,6 +49,7 @@ import {
 } from '../apk-tokens'
 import { audit } from '@/lib/audit'
 import { ComprobacionNoDisponible } from '@/lib/puerta-de-entrada'
+import { CLIENTES_DE_APARATOS } from '@/lib/sesiones-de-la-persona'
 
 const mockUser = db.user.findUnique
 const mockRefresh = db.refreshToken
@@ -251,6 +253,31 @@ describe('el token de acceso lleva la sucursal y los roles', () => {
         expect(c.sucursal).toBe('HOL')
         expect(c.branch_id).toBe('HOL')
         expect(c.sucursales).toEqual(['HOL'])
+    })
+})
+
+describe('el CRM lee del token el código de vendedor y el supervisor (12/10/2026)', () => {
+    it('un gestor con código y supervisor: los dos van firmados', async () => {
+        mockUser.mockResolvedValue(persona({ codigoVendedor: 'andy.almanza', supervisorId: 'sup1' }) as never)
+        const c = decodeJwt((await emitirPar({ userId: 'u1', sessionId: 's1' })).token)
+        expect(c.codigoVendedor).toBe('andy.almanza')
+        expect(c.supervisorId).toBe('sup1')
+    })
+
+    it('sin código ni supervisor: van como `null`, no se omiten', async () => {
+        const c = decodeJwt((await emitirPar({ userId: 'u1', sessionId: 's1' })).token)
+        expect(c).toHaveProperty('codigoVendedor', null)
+        expect(c).toHaveProperty('supervisorId', null)
+    })
+
+    it('`azp` dice qué APK lo pidió: delivery-apk por defecto, crm-apk si lo pidió el CRM', async () => {
+        expect(decodeJwt((await emitirPar({ userId: 'u1', sessionId: 's1' })).token).azp).toBe('delivery-apk')
+        const crm = await emitirPar({ userId: 'u1', sessionId: 's1', aparato: { clientId: 'crm-apk' } })
+        expect(decodeJwt(crm.token).azp).toBe('crm-apk')
+    })
+
+    it('la lista de APK no se separa de la que la cookie de flujo rechaza (`sesiones-de-la-persona.ts`)', () => {
+        expect([...CLIENTES_DE_APARATOS]).toEqual([...CLIENTES_APK])
     })
 })
 

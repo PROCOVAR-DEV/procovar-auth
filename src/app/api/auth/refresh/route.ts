@@ -9,13 +9,13 @@
  *   200 { token, refresh_token, token_type, expires_in, refresh_expires_in }
  *   400 { error: 'invalid_body' }
  *   401 { error: 'invalid_refresh' }
- *   403 { error: 'sin_permiso', codigo: 'sin_permiso' }   ← ya no tiene `delivery.entrar`
+ *   403 { error: 'sin_permiso', codigo: 'sin_permiso' }   ← ya no tiene la llave de su cliente
  *   503 { error: 'comprobacion_no_disponible' }           ← la base no contestó al mirarlo
  *
- * Hoy esta ruta es la PUERTA DE REPARTO, como `/api/auth/token`: el cliente es siempre
- * `delivery-apk` y se renueva con `delivery.entrar`. Cuando entre el CRM habrá que aceptar
- * un `client_id` de lista cerrada con su llave (`LLAVE_DEL_CLIENTE`). El acceso que sale
- * lleva `entradas` (las llaves `<app>.entrar` de la persona), re-firmadas en cada renovación.
+ * Se renueva con el cliente con el que NACIÓ el refresh (`delivery-apk` o `crm-apk`, ver
+ * `/api/auth/token`) y su llave (`delivery.entrar` / `crm.entrar`); lo que diga la petición
+ * no cuenta. El acceso que sale lleva `entradas`, `codigoVendedor`, `supervisorId` y `azp`,
+ * re-firmados en cada renovación. El `message` del 403 dice «Reparto»: la app lee `codigo`.
  *
  * ## El 403 y el 503 son los ÚNICOS fallos que no son un 401, y es a propósito
  *

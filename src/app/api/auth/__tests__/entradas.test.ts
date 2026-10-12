@@ -149,13 +149,13 @@ describe('entradas: lo que firman el exchange y el JWT de la APK', () => {
         const { web, apk } = await lasDosVias()
         expect(web).toEqual([...LLAVES_DE_ENTRADA])
         expect(apk).toEqual([...LLAVES_DE_ENTRADA])
-        expect(web).toHaveLength(7)
+        expect(web).toHaveLength(8)
     })
 
     it('dos roles (rol por defecto + varias membresías): la UNIÓN, sin duplicados y en el orden del mapa', async () => {
         laPersonaEs({ porDefecto: 'GESTOR', membresias: ['LOGISTICO', 'ECONOMICA', 'LOGISTICO'] })
         const { web, apk } = await lasDosVias()
-        expect(web).toEqual(['pedido.entrar', 'aft.entrar', 'delivery.entrar'])
+        expect(web).toEqual(['pedido.entrar', 'aft.entrar', 'delivery.entrar', 'crm.entrar'])
         expect(apk).toEqual(web)
     })
 
@@ -170,19 +170,19 @@ describe('entradas: lo que firman el exchange y el JWT de la APK', () => {
         }
     })
 
-    it('el JWT no crece de forma absurda: como mucho siete cadenas `<app>.entrar`', async () => {
+    it('el JWT no crece de forma absurda: como mucho ocho cadenas `<app>.entrar`', async () => {
         laPersonaEs({ admin: true, porDefecto: 'DESARROLLADOR', membresias: ['DESARROLLADOR', 'SUPER ADMIN', 'GERENTE'] })
         const claims = await porLaApk()
-        expect(claims.entradas as string[]).toHaveLength(7)
-        expect(new Set(claims.entradas as string[]).size).toBe(7)
+        expect(claims.entradas as string[]).toHaveLength(8)
+        expect(new Set(claims.entradas as string[]).size).toBe(8)
         for (const k of claims.entradas as string[]) expect(k).toMatch(/^[a-z]+\.entrar$/)
     })
 
-    it('el resto de campos del JWT no cambia: sólo se suman `entradas` e `iatms` (la hora de emisión en ms)', async () => {
+    it('el resto de campos del JWT no cambia: sólo se suman `entradas`, `iatms` (la hora de emisión en ms) y, para el CRM, `codigoVendedor`, `supervisorId` y `azp`', async () => {
         laPersonaEs({ porDefecto: 'LOGISTICO', membresias: ['LOGISTICO'] })
         const c = await porLaApk()
         expect(Object.keys(c).sort()).toEqual(
-            ['branch_id', 'email', 'entradas', 'exp', 'iat', 'iatms', 'iss', 'jti', 'name', 'purpose', 'role', 'roles', 'sid', 'sub', 'sucursal', 'sucursales'].sort(),
+            ['azp', 'branch_id', 'codigoVendedor', 'email', 'entradas', 'exp', 'iat', 'iatms', 'iss', 'jti', 'name', 'purpose', 'role', 'roles', 'sid', 'sub', 'sucursal', 'sucursales', 'supervisorId'].sort(),
         )
         expect(c.role).toBe('LOGISTICO')
         expect(c.roles).toEqual(['LOGISTICO'])

@@ -3,14 +3,13 @@
  *
  * Usuario (o correo) + contraseña → `{ token, refresh_token }`.
  *
- * ## Hoy es la PUERTA DE REPARTO
+ * ## La puerta de Reparto y del CRM
  *
- * El cliente es siempre `delivery-apk` y exige la llave `delivery.entrar` (lo mismo que
- * `/api/auth/refresh`): sin ella no se emite el par. Cuando entre el CRM habrá que aceptar
- * un `client_id` de lista cerrada, cada uno con su llave (`LLAVE_DEL_CLIENTE`), en vez de
- * esta constante; mientras tanto el CRM NO puede usar esta ruta para entrar. El token que
- * se firma lleva además `entradas`, las llaves `<app>.entrar` de la persona
- * (`entradasDe`), que es lo que lee el servidor de Reparto.
+ * `client_id` es de lista CERRADA (`CLIENTES_APK`): `delivery-apk` (por defecto, si no se
+ * manda) o `crm-apk`. Cada uno exige su llave de `LLAVE_DEL_CLIENTE` (`delivery.entrar`,
+ * `crm.entrar`), igual que `/api/auth/refresh`, que renueva con el cliente con el que nació
+ * el par. Uno desconocido es 400. El token lleva `entradas` (las llaves `<app>.entrar` de
+ * la persona), `codigoVendedor`, `supervisorId` y `azp` (el `client_id`).
  *
  * Es la puerta de la APK, y la ÚNICA de auth que acepta una contraseña sin
  * navegador. No lleva firma de servicio a propósito: una APK se descompila, así
@@ -18,14 +17,14 @@
  * `src/lib/apk-tokens.ts` y `delivery-logistica/docs/identidad.md`.
  *
  * Cuerpo:
- *   { email | username | identifier, password, sucursal? }
+ *   { email | username | identifier, password, sucursal?, client_id? }
  *
  * Respuestas:
  *   200 { token, refresh_token, token_type, expires_in, refresh_expires_in }
  *   400 { error: 'invalid_body' }
  *   401 { error: 'invalid_credentials' }        ← siempre el mismo, ver abajo
  *   403 { error: 'sin_sucursal' }
- *   403 { error: 'sin_permiso', codigo: 'sin_permiso' }   ← sin `delivery.entrar`
+ *   403 { error: 'sin_permiso', codigo: 'sin_permiso' }   ← sin la llave del cliente
  *   429 { error: 'rate_limited' }
  *   503 { error: 'rate_limit_unavailable' }
  *   503 { error: 'comprobacion_no_disponible' }   ← la base no contestó al mirar la llave
@@ -67,12 +66,13 @@ import { logger } from '@/lib/logger';
 import {
     ComprobacionNoDisponible,
     CUERPO_NO_DISPONIBLE,
-    CUERPO_SIN_PERMISO,
     comprobarEntrada,
+    cuerpoSinPermiso,
 } from '@/lib/puerta-de-entrada';
 import { conCors, preflight } from '@/lib/cors-apk';
 import {
     CLIENTE_POR_DEFECTO,
+    CLIENTES_APK,
     ErrorDeIdentidad,
     desdeDondePide,
     emitirPar,
@@ -88,6 +88,8 @@ const BodySchema = z
         password: z.string().min(1),
         /** El código de sucursal, sólo para quien esté en más de una. */
         sucursal: z.string().min(1).max(16).optional(),
+        /** Qué APK pide. Sin él, Reparto: así las APK de Reparto ya instaladas no cambian. */
+        client_id: z.enum(CLIENTES_APK).optional(),
     })
     .refine((b) => !!(b.email ?? b.username ?? b.identifier), {
         message: 'falta el identificador',
@@ -127,7 +129,8 @@ async function manejar(req: NextRequest) {
     if (!parsed.success) return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
 
     const identificador = (parsed.data.email ?? parsed.data.username ?? parsed.data.identifier ?? '').trim();
-    const aparato = { ...desdeDondePide(req.headers), clientId: CLIENTE_POR_DEFECTO };
+    const cliente = parsed.data.client_id ?? CLIENTE_POR_DEFECTO;
+    const aparato = { ...desdeDondePide(req.headers), clientId: cliente };
 
     // Este es el endpoint que más intentos recibe de todo Procovar. El repo ya
     // traía el cubo de fichas sobre Redis (`lib/rate-limit.ts`, hoy sólo en
@@ -160,7 +163,7 @@ async function manejar(req: NextRequest) {
         if (!porIp.allowed || !porCuenta.allowed) {
             audit({
                 action: 'auth.apk.rate_limited',
-                clientId: CLIENTE_POR_DEFECTO,
+                clientId: cliente,
                 ip: aparato.ip,
                 userAgent: aparato.userAgent,
                 meta: { identificador },
@@ -195,7 +198,7 @@ async function manejar(req: NextRequest) {
         // existe, correo con forma inválida, contraseña mal, cuenta sin credencial.
         audit({
             action: 'auth.apk.login_failed',
-            clientId: CLIENTE_POR_DEFECTO,
+            clientId: cliente,
             ip: aparato.ip,
             userAgent: aparato.userAgent,
             meta: { identificador },
@@ -220,17 +223,17 @@ async function manejar(req: NextRequest) {
 
         // La puerta: la contraseña era buena, pero sin `delivery.entrar` no se emite el
         // par. Es otra cosa que el 401 (credenciales) y que `sin_sucursal` (alcance).
-        if (!(await comprobarEntrada(sesion.userId, CLIENTE_POR_DEFECTO))) {
+        if (!(await comprobarEntrada(sesion.userId, cliente))) {
             audit({
                 action: 'auth.apk.denied',
                 userId: sesion.userId,
-                clientId: CLIENTE_POR_DEFECTO,
+                clientId: cliente,
                 ip: aparato.ip,
                 userAgent: aparato.userAgent,
                 meta: { identificador, sessionId: sesion.id },
             });
             await descartarSesion(sesion.id);
-            return NextResponse.json(CUERPO_SIN_PERMISO, { status: 403 });
+            return NextResponse.json(cuerpoSinPermiso(cliente), { status: 403 });
         }
 
         const par = await emitirPar({
@@ -245,13 +248,13 @@ async function manejar(req: NextRequest) {
         // habría quedado fuera al octavo, con un refresh de 30 días en la mano.
         await prisma.session.updateMany({
             where: { id: sesion.id },
-            data: { expiresAt: new Date(Date.now() + par.refresh_expires_in * 1000), clientId: CLIENTE_POR_DEFECTO },
+            data: { expiresAt: new Date(Date.now() + par.refresh_expires_in * 1000), clientId: cliente },
         });
 
         audit({
             action: 'auth.apk.login',
             userId: sesion.userId,
-            clientId: CLIENTE_POR_DEFECTO,
+            clientId: cliente,
             ip: aparato.ip,
             userAgent: aparato.userAgent,
             meta: { identificador, sessionId: sesion.id },

@@ -49,6 +49,8 @@ export const POST = withServiceAuth(async (req: NextRequest) => {
             where: { id: session.user.id },
             select: {
                 activo: true,
+                codigoVendedor: true,
+                supervisorId: true,
                 defaultRole: { select: { name: true } },
                 members: {
                     select: { memberRoles: { select: { role: { select: { name: true } } } } },
@@ -104,6 +106,10 @@ export const POST = withServiceAuth(async (req: NextRequest) => {
             ...session,
             memberships,
             role: persona?.defaultRole?.name ?? null,
+            // Para el CRM (12/10/2026). `null` = no vende / sin supervisor. El equipo de un
+            // supervisor no va aquí (se pide en cada petición): `/api/service/members` con `supervisorId`.
+            codigoVendedor: persona?.codigoVendedor ?? null,
+            supervisorId: persona?.supervisorId ?? null,
             rbac: {
                 ...rbac,
                 roles: [...new Set(roles)],

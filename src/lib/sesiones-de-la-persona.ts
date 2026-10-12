@@ -27,6 +27,9 @@ import { partesDelAgente } from '@/lib/desde-donde';
  */
 export const CLIENTE_DE_APARATOS = 'delivery-apk';
 
+/** Todos los de `CLIENTES_APK` (`apk-tokens.ts`): Reparto y el CRM. Ninguno se acepta de la cookie de flujo. */
+export const CLIENTES_DE_APARATOS: readonly string[] = [CLIENTE_DE_APARATOS, 'crm-apk'];
+
 export type TipoDeSesion = 'navegador' | 'aparato';
 
 /** Lo que se lee de la tabla `session`. Sin el `token`: ese no sale nunca hacia el navegador. */

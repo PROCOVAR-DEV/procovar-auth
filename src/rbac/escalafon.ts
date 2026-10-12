@@ -68,8 +68,13 @@ export function rangoDelActor(nombres: readonly string[]): number | null {
  *
  * Sólo se perdona dentro del escalafón: en un rol hecho a mano no sabemos qué
  * significa, así que ahí se exige como cualquier otra.
+ *
+ * `crm.entrar` se perdona por lo mismo (12/10/2026): el CRM es la herramienta del que
+ * vende y lo abren GESTOR y SUPERVISOR, pero no OPERADOR ni GERENTE. Si contara, el
+ * GERENTE dejaría de poder nombrar gestores y supervisores, que hoy sí nombra. Lo que
+ * se hace DENTRO del CRM lo decide el CRM por el nombre del rol.
  */
-export const MARCADORES_SIN_PODER: ReadonlySet<string> = new Set(['vendedor.codigo'])
+export const MARCADORES_SIN_PODER: ReadonlySet<string> = new Set(['vendedor.codigo', 'crm.entrar'])
 
 export interface RolPedido {
   name: string

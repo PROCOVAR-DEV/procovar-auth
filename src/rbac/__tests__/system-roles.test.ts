@@ -217,7 +217,7 @@ describe('los roles de Procovar', () => {
     // no, así que la cadena se rompe ahí sin que nada esté mal. Sin esta
     // exclusión el test fallaba —y llevaba fallando— por un motivo que no era
     // un fallo.
-    const NO_ES_PODER = new Set(['vendedor.codigo'])
+    const NO_ES_PODER = new Set(['vendedor.codigo', 'crm.entrar'])
     const orden = ['GESTOR', 'OPERADOR', 'SUPERVISOR', 'ADMINISTRADOR', 'SUPER ADMIN', 'DESARROLLADOR']
     for (let i = 1; i < orden.length; i++) {
       const menor = systemRolePermissionKeys(orden[i - 1]).filter((k) => !NO_ES_PODER.has(k))
@@ -226,6 +226,11 @@ describe('los roles de Procovar', () => {
         expect(mayor.has(k), `${orden[i]} debería incluir ${k} (lo tiene ${orden[i - 1]})`).toBe(true)
       }
     }
+  })
+
+  it('al CRM entran DESARROLLADOR, SUPER ADMIN, ADMINISTRADOR, SUPERVISOR y GESTOR; nadie más (12/10/2026)', () => {
+    const entran = SYSTEM_ROLE_NAMES.filter((r) => systemRolePermissionKeys(r).includes('crm.entrar'))
+    expect([...entran].sort()).toEqual(['ADMINISTRADOR', 'DESARROLLADOR', 'GESTOR', 'SUPER ADMIN', 'SUPERVISOR'])
   })
 
   it('ningún rol da un permiso que no exista', () => {

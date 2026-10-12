@@ -445,3 +445,65 @@ describe('POST /api/auth/token — la sesión de un acceso denegado se descarta'
         expect(r.body.codigo).toBe('sin_permiso')
     })
 })
+
+describe('el CRM entra por la misma puerta: `client_id: crm-apk` con `crm.entrar` (12/10/2026)', () => {
+    const entrar = async (cuerpo: Record<string, unknown> = {}) => {
+        const res = await token({
+            headers: new Headers({ 'user-agent': 'crm/1.0' }),
+            json: async () => ({ email: 'y@procovar.local', password: 'buena', ...cuerpo }),
+        } as never)
+        return { status: res.status, body: await res.json() }
+    }
+    const claims = (t: string) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString())
+
+    beforeEach(() => {
+        betterAuth.signInEmail.mockResolvedValue({ token: 'tok-de-este-intento' })
+        db.session.findUnique.mockResolvedValue({ id: 's-nueva', userId: 'u1' })
+        db.session.deleteMany.mockResolvedValue({ count: 1 })
+    })
+
+    it('con crm.entrar: par, el token dice `azp: crm-apk` y la sesión y el refresh nacen como crm-apk', async () => {
+        db.user.findUnique.mockResolvedValue(persona(['crm.entrar']))
+        const r = await entrar({ client_id: 'crm-apk' })
+        expect(r.status).toBe(200)
+        expect(claims(r.body.token).azp).toBe('crm-apk')
+        expect(db.refreshToken.create.mock.calls[0][0].data.clientId).toBe('crm-apk')
+        expect(db.session.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({ data: expect.objectContaining({ clientId: 'crm-apk' }) }),
+        )
+    })
+
+    it('la llave de Reparto NO abre el CRM, y el 403 nombra al CRM', async () => {
+        db.user.findUnique.mockResolvedValue(persona(['delivery.entrar']))
+        const r = await entrar({ client_id: 'crm-apk' })
+        expect(r.status).toBe(403)
+        expect(r.body.codigo).toBe('sin_permiso')
+        expect(r.body.message).toContain('CRM')
+    })
+
+    it('la llave del CRM NO abre Reparto (sin client_id sigue siendo delivery-apk)', async () => {
+        db.user.findUnique.mockResolvedValue(persona(['crm.entrar']))
+        const r = await entrar()
+        expect(r.status).toBe(403)
+        expect(r.body.message).toContain('Reparto')
+    })
+
+    it('un client_id fuera de la lista cerrada es 400, sin tocar la contraseña', async () => {
+        for (const client_id of ['crm', 'reparto', 'pedido', 'lo-que-sea']) {
+            expect((await entrar({ client_id })).status).toBe(400)
+        }
+        expect(betterAuth.signInEmail).not.toHaveBeenCalled()
+    })
+
+    it('al renovar, una fila crm-apk pide crm.entrar y el refresh nuevo SIGUE siendo crm-apk', async () => {
+        filaDeRefresh({ clientId: 'crm-apk' })
+        db.user.findUnique.mockResolvedValue(persona(['delivery.entrar']))
+        expect((await pedirRefresh()).status).toBe(403)
+
+        db.user.findUnique.mockResolvedValue(persona(['crm.entrar']))
+        const r = await pedirRefresh()
+        expect(r.status).toBe(200)
+        expect(claims(r.body.token).azp).toBe('crm-apk')
+        expect(db.refreshToken.create.mock.calls[0][0].data.clientId).toBe('crm-apk')
+    })
+})

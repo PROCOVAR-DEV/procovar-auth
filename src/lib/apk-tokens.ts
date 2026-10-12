@@ -143,6 +143,13 @@ export const SEGUNDOS_ENTREGA = 10 * 60;
 /** Quién pide el par, para la auditoría. */
 export const CLIENTE_POR_DEFECTO = 'delivery-apk';
 
+/**
+ * Las APK que pueden pedir par en `/api/auth/token`, lista CERRADA. Cada una abre con su
+ * llave de `LLAVE_DEL_CLIENTE` (`delivery-apk` → `delivery.entrar`, `crm-apk` → `crm.entrar`).
+ * El refresh guarda con cuál nació y renueva siempre con ESA (`emitirDesde`).
+ */
+export const CLIENTES_APK = [CLIENTE_POR_DEFECTO, 'crm-apk'] as const;
+
 export interface Par {
     token: string;
     refresh_token: string;
@@ -169,6 +176,10 @@ export interface Identidad {
      * renovación, así que un cambio de rol se nota en ≤ 15 minutos.
      */
     entradas: string[];
+    /** Su código de vendedor (`User.codigoVendedor`), o `null` si no vende. Lo lee el CRM. */
+    codigoVendedor: string | null;
+    /** Quién lo supervisa (`User.supervisorId`), o `null`. Su equipo, en `/api/service/members`. */
+    supervisorId: string | null;
 }
 
 export type MotivoDeFallo =
@@ -243,6 +254,8 @@ export async function resolverIdentidad(userId: string, sucursalPedida?: string 
             username: true,
             activo: true,
             isSystemAdmin: true,
+            codigoVendedor: true,
+            supervisorId: true,
             defaultRole: { select: { name: true } },
             members: {
                 orderBy: { createdAt: 'asc' },
@@ -295,6 +308,8 @@ export async function resolverIdentidad(userId: string, sucursalPedida?: string 
         sucursal,
         sucursales,
         entradas,
+        codigoVendedor: persona.codigoVendedor ?? null,
+        supervisorId: persona.supervisorId ?? null,
     };
 }
 
@@ -306,7 +321,12 @@ export async function resolverIdentidad(userId: string, sucursalPedida?: string 
  * token nuevo—, y **no** como `branchId`, que en la web significa otra cosa (el
  * id de la sucursal en la base de delivery, no su código).
  */
-export async function firmarAcceso(identidad: Identidad, sessionId: string | null, leidoEn: number = Date.now()): Promise<string> {
+export async function firmarAcceso(
+    identidad: Identidad,
+    sessionId: string | null,
+    leidoEn: number = Date.now(),
+    clientId: string = CLIENTE_POR_DEFECTO
+): Promise<string> {
     return signJwt(
         {
             sub: identidad.sub,
@@ -317,8 +337,13 @@ export async function firmarAcceso(identidad: Identidad, sessionId: string | nul
             sucursal: identidad.sucursal,
             branch_id: identidad.sucursal,
             sucursales: identidad.sucursales,
-            // Siempre, aunque sea `[]`: ver `Identidad.entradas`. Siete cadenas como mucho.
+            // Siempre, aunque sea `[]`: ver `Identidad.entradas`. Ocho cadenas como mucho.
             entradas: identidad.entradas,
+            // Para el CRM. Siempre presentes: `null` = no vende / no tiene supervisor.
+            codigoVendedor: identidad.codigoVendedor,
+            supervisorId: identidad.supervisorId,
+            // La APK que lo pidió (`delivery-apk`, `crm-apk`): quien quiera aceptar sólo los suyos, que lo mire.
+            azp: clientId,
             ...(sessionId ? { sid: sessionId } : {}),
             // La hora de emisión en MILISEGUNDOS. `iat` va en segundos y las marcas de invalidación
             // (`eventos-de-sesion.ts`) en ms: un token pedido 250 ms después del evento tenía `iat*1000`
@@ -366,7 +391,7 @@ export async function emitirPar(args: {
 }): Promise<Par> {
     const leidoEn = Date.now();
     const identidad = await resolverIdentidad(args.userId, args.sucursalPedida);
-    const token = await firmarAcceso(identidad, args.sessionId, leidoEn);
+    const token = await firmarAcceso(identidad, args.sessionId, leidoEn, args.aparato?.clientId ?? CLIENTE_POR_DEFECTO);
 
     const raw = randomBytes(32).toString('base64url');
     const nueva = await prisma.refreshToken.create({
@@ -720,7 +745,9 @@ async function emitirDesde(
             sessionId: fila.sessionId,
             familyId: fila.familyId,
             reemplazaA: fila.id,
-            aparato,
+            // La fila nueva nace del MISMO cliente que la vieja: un refresh del CRM no puede
+            // volver como `delivery-apk` y pasar a pedir otra llave.
+            aparato: { ...aparato, clientId: fila.clientId ?? CLIENTE_POR_DEFECTO },
         });
         // La sesión se estira con cada renovación. Sin esto, la caducidad natural
         // de better-auth (7 días) mataría a un aparato que lleva tres semanas

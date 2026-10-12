@@ -53,6 +53,8 @@ describe('el mapa clientId → llave', () => {
             'delivery-apk': 'delivery.entrar',
             'procovar-rutas': 'rutas.entrar',
             'procovar-notify': 'avisos.entrar',
+            crm: 'crm.entrar',
+            'crm-apk': 'crm.entrar',
         })
     })
 
@@ -80,8 +82,9 @@ describe('cada clientId conocido está DECIDIDO: con llave en el mapa, o en SIN_
         expect(new Set(SIN_LLAVE).size).toBe(SIN_LLAVE.length)
     })
 
-    it('asignacion, procovar-sync y crm están decididos como sin llave', () => {
-        expect(SIN_LLAVE).toEqual(expect.arrayContaining(['asignacion', 'procovar-sync', 'crm']))
+    it('asignacion y procovar-sync están decididos como sin llave; el CRM ya NO (12/10/2026)', () => {
+        expect(SIN_LLAVE).toEqual(expect.arrayContaining(['asignacion', 'procovar-sync']))
+        expect(SIN_LLAVE).not.toContain('crm')
     })
 })
 
@@ -98,6 +101,14 @@ describe('puedeEntrar', () => {
         expect(await puedeEntrar('u1', 'aft')).toBe(true)
         expect(await puedeEntrar('u1', 'procovar-rutas')).toBe(true)
         expect(await puedeEntrar('u1', 'ccsa')).toBe(false)
+    })
+
+    it('el CRM (web `crm` y APK `crm-apk`) se abre con crm.entrar, y no con la de Reparto', async () => {
+        db.user.findUnique.mockResolvedValue(persona({ porDefecto: ['crm.entrar'] }))
+        for (const c of ['crm', 'crm-apk']) expect(await puedeEntrar('u1', c)).toBe(true)
+        expect(await puedeEntrar('u1', 'delivery-apk')).toBe(false)
+        db.user.findUnique.mockResolvedValue(persona({ porDefecto: ['delivery.entrar'] }))
+        for (const c of ['crm', 'crm-apk']) expect(await puedeEntrar('u1', c)).toBe(false)
     })
 
     it('delivery, reparto y delivery-apk se abren con la MISMA llave', async () => {
@@ -206,8 +217,8 @@ describe('una cuenta de baja (activo=false): la APK la deja pasar (la cierra res
     describe('clientes SIN_LLAVE: la baja se mira antes del atajo (WEB), la APK sigue pasando', () => {
         const bajas = () => [persona({ activo: false }), persona({ activo: false, admin: true }), persona({ activo: false, porDefecto: [...new Set(Object.values(LLAVE_DEL_CLIENTE))] })]
 
-        it('la lista no está vacía y trae los cinco del informe', () => {
-            expect(SIN_LLAVE).toEqual(expect.arrayContaining(['asignacion', 'crm', 'rutas', 'portal', 'procovar-sync']))
+        it('la lista no está vacía y trae los del informe (el CRM salió el 12/10/2026: ahora tiene llave)', () => {
+            expect(SIN_LLAVE).toEqual(expect.arrayContaining(['asignacion', 'rutas', 'portal', 'procovar-sync']))
         })
 
         for (const c of SIN_LLAVE) {
@@ -250,7 +261,7 @@ describe('una cuenta de baja (activo=false): la APK la deja pasar (la cierra res
 describe('entradasDe: las llaves de entrada que se FIRMAN', () => {
     const acceso = (...llaves: string[]) => ({ todo: false, llaves: new Set(llaves) })
 
-    it('son siete, sin repetir, en el orden del mapa', () => {
+    it('son ocho, sin repetir, en el orden del mapa', () => {
         expect(LLAVES_DE_ENTRADA).toEqual([
             'pedido.entrar',
             'analitics.entrar',
@@ -259,6 +270,7 @@ describe('entradasDe: las llaves de entrada que se FIRMAN', () => {
             'delivery.entrar',
             'rutas.entrar',
             'avisos.entrar',
+            'crm.entrar',
         ])
     })
 
@@ -285,7 +297,7 @@ describe('entradasDe: las llaves de entrada que se FIRMAN', () => {
         expect(entradasDe(acceso('avisos.entrar', 'aft.entrar', 'pedido.entrar'))).toEqual(['pedido.entrar', 'aft.entrar', 'avisos.entrar'])
         const todas = entradasDe({ todo: true, llaves: new Set() })
         todas.push('x')
-        expect(entradasDe({ todo: true, llaves: new Set() })).toHaveLength(7)
+        expect(entradasDe({ todo: true, llaves: new Set() })).toHaveLength(8)
     })
 })
 

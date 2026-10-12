@@ -69,6 +69,9 @@ export const LLAVE_DEL_CLIENTE: Readonly<Record<string, string>> = {
     'delivery-apk': 'delivery.entrar',
     'procovar-rutas': 'rutas.entrar',
     'procovar-notify': 'avisos.entrar',
+    // El CRM: su web (`crm`, flujo callback → exchange) y su APK (`crm-apk`, `/api/auth/token`).
+    crm: 'crm.entrar',
+    'crm-apk': 'crm.entrar',
 }
 
 /** Cómo se llama cada una de cara a la persona, para decirle a qué no entra. */
@@ -82,6 +85,8 @@ export const NOMBRE_DEL_CLIENTE: Readonly<Record<string, string>> = {
     'delivery-apk': 'Reparto',
     'procovar-rutas': 'Rutas',
     'procovar-notify': 'Avisos',
+    crm: 'CRM',
+    'crm-apk': 'CRM',
 }
 
 /**
@@ -94,9 +99,6 @@ export const SIN_LLAVE: readonly string[] = [
     'procovar-sync',
     // Tiene su propio login por contraseña y no hay `asignacion.entrar` en el catálogo.
     'asignacion',
-    // El CRM de Amado aún no está registrado. Cuando entre habrá que aceptar un `client_id`
-    // de lista cerrada con su llave (ver `docs/identidad-para-el-crm.md`), no dejarlo aquí.
-    'crm',
     // Ids de TARJETA del seed (`rbac/procovar.ts`): `rutas` es la tarjeta de `procovar-rutas`
     // (su `client_app` de verdad), y de `entrega`, `caja`, `traslado` y `portal` el catálogo
     // no tiene llave de entrada (ver `LLAVE_DE_ENTRADA` en `aplicaciones-visibles.ts`). Un
@@ -110,7 +112,7 @@ export const SIN_LLAVE: readonly string[] = [
 
 /**
  * Las llaves de entrada que Accesos FIRMA (`entradas`): las del mapa, sin repetir (tres
- * clientes abren con `delivery.entrar`) y en el orden del mapa. Son siete.
+ * clientes abren con `delivery.entrar`) y en el orden del mapa. Son ocho.
  */
 export const LLAVES_DE_ENTRADA: readonly string[] = [...new Set(Object.values(LLAVE_DEL_CLIENTE))]
 
@@ -138,6 +140,12 @@ export const CUERPO_SIN_PERMISO = {
     codigo: 'sin_permiso',
     message: 'No tienes permiso para entrar a Reparto.',
 } as const
+
+/** El mismo 403 con el nombre de la aplicación que se pidió (Reparto, CRM). */
+export const cuerpoSinPermiso = (clientId: string) => ({
+    ...CUERPO_SIN_PERMISO,
+    message: `No tienes permiso para entrar a ${NOMBRE_DEL_CLIENTE[clientId] ?? 'esta aplicación'}.`,
+})
 
 /** El 503 de la APK cuando no se pudo comprobar. La app conserva los tokens y reintenta. */
 export const CUERPO_NO_DISPONIBLE = { error: 'comprobacion_no_disponible' } as const

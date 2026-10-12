@@ -138,6 +138,8 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
   e('delivery.entrar',  'Entrar', 'delivery', 'Entrar en Delivery', 'Access Delivery'),
   e('ccsa.entrar',      'Entrar', 'ccsa', 'Entrar en el Tablero Parranda', 'Access the Parranda dashboard'),
   e('aft.entrar',       'Entrar', 'aft', 'Entrar en Activos Fijos', 'Access Fixed Assets'),
+  // El CRM de Amado decide lo de dentro por el NOMBRE del rol, como Reparto; esto es sólo la puerta.
+  e('crm.entrar',       'Entrar', 'crm', 'Entrar en el CRM', 'Access the CRM'),
 
   // ══ Las pantallas de Accesos ═════════════════════════════════════════════
   e('auth.sucursales',   'Vistas', 'auth', 'Ver Sucursales', 'View Sucursales'),

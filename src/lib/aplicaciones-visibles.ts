@@ -120,6 +120,14 @@ export const APLICACIONES_DE_LA_CASA: Destino[] = [
         externo: true,
     },
     {
+        clientId: 'crm',
+        href: 'https://crm.procovar.cloud',
+        icono: 'lucide:contact',
+        titulo: 'CRM',
+        descripcion: 'Clientes, visitas y pedidos de la fuerza de ventas.',
+        externo: true,
+    },
+    {
         clientId: 'portal',
         href: 'https://procovar.cloud',
         icono: 'lucide:home',
@@ -152,6 +160,7 @@ export const LLAVE_DE_ENTRADA: Readonly<Record<string, string | null>> = {
     delivery: 'delivery.entrar',
     ccsa: 'ccsa.entrar',
     aft: 'aft.entrar',
+    crm: 'crm.entrar',
     entrega: null,
     caja: null,
     traslado: null,

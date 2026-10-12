@@ -15,7 +15,7 @@ import {
 import { uuidv7 } from './uuidv7';
 import { cerrarSesionesAntes, cerrarSesionesDespues } from './hooks-de-sesion';
 import { auditarInicioWeb } from './historial-de-inicios';
-import { CLIENTE_DE_APARATOS } from './sesiones-de-la-persona';
+import { CLIENTES_DE_APARATOS } from './sesiones-de-la-persona';
 
 const APP_NAME = process.env.APP_NAME ?? "QB Auth";
 /**
@@ -50,7 +50,7 @@ const clientIdFromFlowCookie = (cookieHeader?: string | null): string | undefine
     try {
         const parsed = JSON.parse(decodeURIComponent(raw)) as { clientId?: unknown };
         // `qb.flow_state` va sin firmar: el cliente de los aparatos no se acepta de aquí, sólo lo escribe `/api/auth/token`.
-        return typeof parsed.clientId === 'string' && parsed.clientId && parsed.clientId !== CLIENTE_DE_APARATOS
+        return typeof parsed.clientId === 'string' && parsed.clientId && !CLIENTES_DE_APARATOS.includes(parsed.clientId)
             ? parsed.clientId
             : undefined;
     } catch {

@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 
 const base = vi.hoisted(() => ({
-    personas: [] as Array<{ id: string; activo: boolean; defaultRole: { name: string } | null; members: unknown[] }>,
+    personas: [] as Array<{ id: string; activo: boolean; defaultRole: { name: string } | null; members: unknown[]; codigoVendedor?: string | null; supervisorId?: string | null }>,
     caida: false,
 }))
 const db = vi.hoisted(() => ({
@@ -168,3 +168,26 @@ describe('verify (JWT)', () => {
     })
 })
 
+
+describe('verify-session da al CRM el código de vendedor y el supervisor (12/10/2026)', () => {
+    const conSesionDe = (userId: string) =>
+        betterAuth.getSession.mockResolvedValue({ user: { id: userId }, session: { id: 's1', activeOrganizationId: null } })
+    const cuerpo = { sessionToken: 'x'.repeat(20) }
+
+    it('con código y supervisor: salen los dos (la base sólo los da si se piden en el select)', async () => {
+        base.personas.push({ id: 'u-gestor', activo: true, defaultRole: { name: 'GESTOR' }, members: [], codigoVendedor: 'andy.almanza', supervisorId: 'u-sup' })
+        conSesionDe('u-gestor')
+        const r = await llamar(verifySession, cuerpo)
+        expect(r.status).toBe(200)
+        expect(r.cuerpo).toMatchObject({ codigoVendedor: 'andy.almanza', supervisorId: 'u-sup', role: 'GESTOR' })
+    })
+
+    it('sin código ni supervisor: `null` en los dos, y lo de antes sigue igual', async () => {
+        conSesionDe('u-alta')
+        const r = await llamar(verifySession, cuerpo)
+        expect(r.status).toBe(200)
+        expect(r.cuerpo.codigoVendedor).toBeNull()
+        expect(r.cuerpo.supervisorId).toBeNull()
+        expect(r.cuerpo).toMatchObject({ valid: true, role: 'GESTOR', memberships: [] })
+    })
+})

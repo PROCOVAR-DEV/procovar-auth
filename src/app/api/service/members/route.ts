@@ -23,9 +23,16 @@
  * Es de SOLO LECTURA y no expone nada que no sea nombre, correo y rol: ni sesiones,
  * ni permisos, ni nada con lo que se pueda entrar a ningún sitio.
  *
- * Body: { organizationId?: string, roles?: string[] }
+ * Body: { organizationId?: string, roles?: string[], supervisorId?: string, userIds?: string[] }
  *   organizationId  la sucursal. Sin él, todas: lo pide un super admin.
  *   roles           filtra por rol. Sin él, todos.
+ *   supervisorId    sólo el EQUIPO de ese supervisor (personas con `supervisorId` = él).
+ *   userIds         sólo esas personas (hasta 500): el código y el nombre de un lote.
+ *
+ * Cada fila lleva además `codigoVendedor` y `supervisorId` (o `null`) y `activo`. Lo pide el CRM, que
+ * decide por eso qué ve un supervisor; el token y `verify-session` sólo llevan los de la
+ * propia persona, no la lista del equipo, para no inflar cada petición de cada aplicación.
+ * Una persona en varias sucursales sale una vez POR SUCURSAL (como siempre): deduplicar por `id`.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
@@ -36,6 +43,8 @@ import { logger } from '@/lib/logger';
 const BodySchema = z.object({
     organizationId: z.string().min(1).optional(),
     roles: z.array(z.string().min(1)).max(20).optional(),
+    supervisorId: z.string().min(1).optional(),
+    userIds: z.array(z.string().min(1)).max(500).optional(),
 });
 
 export const POST = withServiceAuth(async (req: NextRequest) => {
@@ -52,13 +61,17 @@ export const POST = withServiceAuth(async (req: NextRequest) => {
     if (!parsed.success) {
         return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
     }
-    const { organizationId, roles } = parsed.data;
+    const { organizationId, roles, supervisorId, userIds } = parsed.data;
 
     try {
         const rows = await prisma.member.findMany({
-            where: organizationId ? { organizationId } : {},
+            where: {
+                ...(organizationId ? { organizationId } : {}),
+                ...(userIds ? { userId: { in: userIds } } : {}),
+                ...(supervisorId ? { user: { supervisorId } } : {}),
+            },
             include: {
-                user: { select: { id: true, name: true, email: true } },
+                user: { select: { id: true, name: true, email: true, activo: true, codigoVendedor: true, supervisorId: true } },
                 organization: { select: { id: true, name: true, slug: true } },
                 memberRoles: { include: { role: { select: { name: true } } } },
             },
@@ -70,6 +83,10 @@ export const POST = withServiceAuth(async (req: NextRequest) => {
                 id: m.user.id,
                 name: m.user.name,
                 email: m.user.email,
+                codigoVendedor: m.user.codigoVendedor ?? null,
+                supervisorId: m.user.supervisorId ?? null,
+                // Las bajas no se borran (sus pedidos cuelgan de ellas): quien lista un equipo, que las filtre.
+                activo: m.user.activo,
                 organizationId: m.organizationId,
                 organizationName: m.organization?.name ?? null,
                 organizationSlug: m.organization?.slug ?? null,
