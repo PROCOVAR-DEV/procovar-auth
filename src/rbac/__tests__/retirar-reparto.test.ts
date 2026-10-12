@@ -141,7 +141,7 @@ describe('retirar Reparto de los roles en la base', () => {
 
     const completo = await leer(baseEnMemoria({
       logistico: ['delivery.entrar', 'reparto.read', 'reparto.assign', 'reparto.complete', 'reparto.report',
-        'ruta.read', 'ruta.manage', 'vehiculo.read', 'almacen.read'],
+        'ruta.read', 'ruta.manage', 'vehiculo.read', 'almacen.read', 'crm.entrar'],
     }).db)
     expect(completo.logistico).toEqual({ existe: true, faltan: [] })
 
@@ -155,7 +155,7 @@ describe('retirar Reparto de los roles en la base', () => {
   // Reparto en los cuatro roles. Hace falta que esté EXISTENTE Y COMPLETO.
   describe('motivoParaNoAplicar: cuándo el script se niega', () => {
     const COMPLETO = ['delivery.entrar', 'reparto.read', 'reparto.assign', 'reparto.complete', 'reparto.report',
-      'ruta.read', 'ruta.manage', 'vehiculo.read', 'almacen.read']
+      'ruta.read', 'ruta.manage', 'vehiculo.read', 'almacen.read', 'crm.entrar']
 
     it('se niega si LOGISTICO no existe', async () => {
       expect(motivoParaNoAplicar(await leer(baseEnMemoria({ logistico: null }).db))).toMatch(/no existe/)

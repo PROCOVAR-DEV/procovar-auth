@@ -114,11 +114,11 @@ describe('el exchange ante una caída de la base al comprobar la puerta', () => 
 })
 
 describe('entradas: lo que firman el exchange y el JWT de la APK', () => {
-    it('LOGISTICO (tiene delivery.entrar): está, y es lo único', async () => {
+    it('LOGISTICO (tiene delivery.entrar): está, y sólo con la del CRM (12/10/2026)', async () => {
         laPersonaEs({ porDefecto: 'LOGISTICO', membresias: ['LOGISTICO'] })
         const { web, apk } = await lasDosVias()
-        expect(web).toEqual(['delivery.entrar'])
-        expect(apk).toEqual(['delivery.entrar'])
+        expect(web).toEqual(['delivery.entrar', 'crm.entrar'])
+        expect(apk).toEqual(['delivery.entrar', 'crm.entrar'])
     })
 
     it('GERENTE actual (sin delivery.entrar): no está, pero el campo existe con lo demás', async () => {
@@ -127,7 +127,7 @@ describe('entradas: lo que firman el exchange y el JWT de la APK', () => {
         // que aquí se mira lo que se FIRMA con otro cliente, y el JWT se mira tal cual.
         codigos.consumeAuthCode.mockResolvedValue({ userId: 'u1', clientId: 'pedido', sessionToken: 'tok', returnTo: null })
         const { web, apk } = await lasDosVias()
-        expect(web).toEqual(['pedido.entrar', 'analitics.entrar', 'aft.entrar', 'ccsa.entrar', 'rutas.entrar'])
+        expect(web).toEqual(['pedido.entrar', 'analitics.entrar', 'aft.entrar', 'ccsa.entrar', 'rutas.entrar', 'crm.entrar'])
         expect(web).not.toContain('delivery.entrar')
         expect(apk).toEqual(web)
     })

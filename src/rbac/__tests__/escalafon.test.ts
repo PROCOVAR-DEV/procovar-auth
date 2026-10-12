@@ -5,7 +5,7 @@
  * comprueba el "sí" pasa igual de verde con la guarda quitada.
  */
 import { describe, it, expect } from 'vitest'
-import { puedeRepartirRol, rolesRepartibles, rangoDeRol, rangoDelActor, ESCALAFON } from '../escalafon'
+import { puedeRepartirRol, rolesRepartibles, rangoDeRol, rangoDelActor, ESCALAFON, MARCADORES_SIN_PODER } from '../escalafon'
 import { systemRolePermissionKeys, SYSTEM_ROLE_NAMES } from '../system-roles'
 import type { ResolvedRbac } from '../types'
 
@@ -123,6 +123,16 @@ describe('los demás', () => {
     expect(gerente.global).not.toContain('member.invite')
     expect(puedeRepartirRol(gerente, ['GERENTE'], rol('ADMINISTRADOR'))).toBe(false)
     expect(puedeRepartirRol(gerente, ['GERENTE'], rol('GESTOR'))).toBe(true)
+  })
+
+  it('el GERENTE sigue nombrando gestores y supervisores, que llevan crm.entrar, sin excepción en el techo (12/10/2026)', () => {
+    const gerente = actor('GERENTE')
+    expect(gerente.global).toContain('crm.entrar')
+    expect(rol('GESTOR').claves).toContain('crm.entrar')
+    expect(rol('SUPERVISOR').claves).toContain('crm.entrar')
+    expect(MARCADORES_SIN_PODER.has('crm.entrar')).toBe(false)
+    expect(puedeRepartirRol(gerente, ['GERENTE'], rol('GESTOR'))).toBe(true)
+    expect(puedeRepartirRol(gerente, ['GERENTE'], rol('SUPERVISOR'))).toBe(true)
   })
 
   it('sin rol del escalafón no reparte ninguno del escalafón', () => {

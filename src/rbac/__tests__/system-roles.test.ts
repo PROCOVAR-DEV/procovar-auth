@@ -82,9 +82,9 @@ describe('los roles de Procovar', () => {
     expect([...REPARTO_KEYS].sort()).toEqual([...REPARTO_A_MANO].sort())
   })
 
-  it('el logístico lleva EXACTAMENTE las nueve de Reparto, y nada más', () => {
+  it('el logístico lleva EXACTAMENTE las nueve de Reparto y la entrada al CRM (12/10/2026), y nada más', () => {
     expect([...systemRolePermissionKeys('LOGISTICO')].sort()).toEqual([
-      'almacen.read', 'delivery.entrar', 'reparto.assign', 'reparto.complete', 'reparto.read',
+      'almacen.read', 'crm.entrar', 'delivery.entrar', 'reparto.assign', 'reparto.complete', 'reparto.read',
       'reparto.report', 'ruta.manage', 'ruta.read', 'vehiculo.read',
     ])
   })
@@ -100,7 +100,7 @@ describe('los roles de Procovar', () => {
 
   it('el logístico no toca pedidos, clientes, vendedores ni accesos', () => {
     const suyas = systemRolePermissionKeys('LOGISTICO')
-    expect(suyas.every((k) => REPARTO_A_MANO.includes(k))).toBe(true)
+    expect(suyas.every((k) => REPARTO_A_MANO.includes(k) || k === 'crm.entrar')).toBe(true)
     for (const k of ['pedido.entrar', 'pedido.read', 'cliente.read', 'vendedor.codigo', 'member.read']) {
       expect(suyas, k).not.toContain(k)
     }
@@ -217,6 +217,8 @@ describe('los roles de Procovar', () => {
     // no, así que la cadena se rompe ahí sin que nada esté mal. Sin esta
     // exclusión el test fallaba —y llevaba fallando— por un motivo que no era
     // un fallo.
+    // `crm.entrar` también: el Gestor entra al CRM y el Operador no (Jose, 12/10/2026), y
+    // esta escalera pone al Operador encima del Gestor.
     const NO_ES_PODER = new Set(['vendedor.codigo', 'crm.entrar'])
     const orden = ['GESTOR', 'OPERADOR', 'SUPERVISOR', 'ADMINISTRADOR', 'SUPER ADMIN', 'DESARROLLADOR']
     for (let i = 1; i < orden.length; i++) {
@@ -228,9 +230,9 @@ describe('los roles de Procovar', () => {
     }
   })
 
-  it('al CRM entran DESARROLLADOR, SUPER ADMIN, ADMINISTRADOR, SUPERVISOR y GESTOR; nadie más (12/10/2026)', () => {
+  it('al CRM entran todos menos OPERADOR, ECONOMICA y ANALISTA (12/10/2026)', () => {
     const entran = SYSTEM_ROLE_NAMES.filter((r) => systemRolePermissionKeys(r).includes('crm.entrar'))
-    expect([...entran].sort()).toEqual(['ADMINISTRADOR', 'DESARROLLADOR', 'GESTOR', 'SUPER ADMIN', 'SUPERVISOR'])
+    expect([...entran].sort()).toEqual(['ADMINISTRADOR', 'DESARROLLADOR', 'GERENTE', 'GESTOR', 'LOGISTICO', 'SUPER ADMIN', 'SUPERVISOR'])
   })
 
   it('ningún rol da un permiso que no exista', () => {

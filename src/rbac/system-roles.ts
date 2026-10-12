@@ -118,8 +118,9 @@ const GESTOR_KEYS = [
 const VENDE = 'vendedor.codigo'
 
 /**
- * Entrar al CRM: DESARROLLADOR, SUPER ADMIN y ADMINISTRADOR (por `allKeys()`), SUPERVISOR y
- * GESTOR. Nadie más (Jose, 12/10/2026). Fuera de GESTOR_KEYS porque OPERADOR las hereda.
+ * Entrar al CRM: DESARROLLADOR, SUPER ADMIN, ADMINISTRADOR y GERENTE (por `allKeys()`),
+ * SUPERVISOR, GESTOR y LOGISTICO. Nadie más: ni OPERADOR, ni ECONOMICA, ni ANALISTA
+ * (Jose, 12/10/2026). Fuera de GESTOR_KEYS porque OPERADOR las hereda.
  */
 const CRM = 'crm.entrar'
 
@@ -224,8 +225,6 @@ const GERENTE_EXCLUIDOS = new Set<string>([
   // Reparto ya no es suyo (08/10/2026). El Gerente se sirve de `allKeys()`, así que
   // sin esto seguiría recibiendo cada llave de Reparto que se añada al catálogo.
   ...REPARTO_KEYS,
-  // El CRM tampoco (12/10/2026): entra el Administrador, no el Gerente.
-  CRM,
   // Repartir accesos es del Administrador.
   'member.invite',
   'member.remove',
@@ -313,6 +312,8 @@ export function systemRolePermissionKeys(role: string): string[] {
      */
     case 'LOGISTICO': return [
       'delivery.entrar',
+      // También entra al CRM (Jose, 12/10/2026).
+      CRM,
       'reparto.read',
       'reparto.assign',
       'reparto.complete',
