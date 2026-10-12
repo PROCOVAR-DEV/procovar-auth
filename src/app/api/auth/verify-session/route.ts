@@ -65,7 +65,7 @@ export const POST = withServiceAuth(async (req: NextRequest) => {
             where: { userId: session.user.id },
             select: {
                 id: true, role: true, createdAt: true,
-                organization: { select: { id: true, name: true, slug: true, logo: true } },
+                organization: { select: { id: true, name: true, slug: true, codigo: true, logo: true } },
             },
             orderBy: { createdAt: 'desc' },
         });
