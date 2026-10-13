@@ -86,6 +86,19 @@ export const CLIENTES: ClienteRegistrado[] = [
         scopes: ['callback:create', 'session:verify', 'session:revoke', 'auth:exchange'],
     },
     {
+        clientId: 'crm',
+        name: 'CRM de fuerza de ventas',
+        description: 'CRM de los vendedores en campo: API y web en crm.procovar.cloud. La APK entra con el token de APK (client_id crm-apk), no por aquí.',
+        // La vuelta la atiende la API del CRM (mismo origen que la web): canjea el
+        // código y graba la cookie. Se compara origen y ruta exactos.
+        allowedCallbackUrls: [
+            'https://crm.procovar.cloud/api/auth/callback',
+            'http://localhost:8080/api/auth/callback',
+        ],
+        allowedDomains: ['crm.procovar.cloud', 'localhost:8080'],
+        scopes: ['callback:create', 'session:verify', 'session:revoke', 'auth:exchange'],
+    },
+    {
         clientId: 'procovar-sync',
         name: 'Procovar Sync',
         description: 'Servicio de sincronizacion de la fuerza de ventas: ingesta de Axis/Ventra, sync de las tablets Android y salidas a los sistemas externos.',
