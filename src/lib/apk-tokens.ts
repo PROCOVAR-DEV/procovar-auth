@@ -26,8 +26,9 @@
  *    tiene una copia: se revocan TODAS las sesiones de esa cuenta —no sólo la de
  *    ese aparato— porque no se sabe cuál de los dos es el ladrón. Lo único que
  *    se exceptúa es el refresh que vuelve **en los segundos siguientes** a
- *    haberse gastado, que no es un ladrón sino una respuesta que se perdió por
- *    el camino: ver `SEGUNDOS_DE_GRACIA`, que cuenta el día que esto costó.
+ *    haberse gastado, o **cuyo sucesor sigue sin estrenar**, que no es un ladrón
+ *    sino una respuesta que se perdió por el camino: ver `SEGUNDOS_DE_GRACIA`,
+ *    que cuenta los dos días que esto costó.
  * 4. **La gracia se concede UNA vez por fila, y punto.** Cada concesión abre una
  *    rama nueva que vive 30 días; una gracia sin tope deja que un solo refresh
  *    robado abra las que quiera y apague la detección de esa cuenta un mes. El
@@ -125,6 +126,52 @@ export const SEGUNDOS_REFRESH = 30 * 24 * 60 * 60;
  * cliente coincide (`mismoCliente`) junto con la IP y el `userAgent` de quien
  * pidió. Eso no bloquea a nadie, pero deja el rastro para responder «¿esto fue
  * una red mala o alguien con una copia?» sin tener que adivinarlo.
+ *
+ * ## El día que la ventana se quedó corta — 15/10/2026
+ *
+ * El logístico de Santiago, en la app de escritorio de Windows. A las 15:59:57 UTC
+ * canjeó R1 y aquí salió R2 (`R1.replacedBy = R2`); la respuesta se perdió por la
+ * red de allá. A las 16:03:49 —casi cuatro minutos después, fuera de los 120 s— la
+ * app volvió con R1, y `todas las sesiones revocadas — motivo: refresh
+ * reutilizado`: fuera en mitad del trabajo. R2 no se usó nunca. No hubo robo: era
+ * el caso de arriba con el reintento tarde, porque la app reintenta cuando lo
+ * necesita y sin señal eso puede ser mucho después.
+ *
+ * Ensanchar la ventana no era el arreglo: «tarde» puede ser una hora, y cuanto
+ * más ancha, más tiempo vale un refresh robado. El arreglo es mirar la PRUEBA en
+ * vez del reloj: **si el sucesor sigue sin estrenar** —ni gastado ni revocado—,
+ * el par nuevo no llegó a nadie, y la gracia se concede aunque haya pasado la
+ * ventana. En la auditoría (`auth.refresh.gracia`) sale con el motivo «el par
+ * nuevo nunca se usó» y el id del sucesor (`sucesorPerdido`). Si el sucesor YA se
+ * usó, la familia siguió adelante con otro y el viejo que vuelve sí es una copia:
+ * regla 3, cuenta entera. Lo demás no cambia: UNA gracia por fila (la segunda
+ * vez es `gracia_gastada`), la puerta antes de emitir, nada atado a IP ni a
+ * cliente, y una fila caducada sale `expired`.
+ *
+ * **El sucesor que no llegó se da por GASTADO.** Ni se deja vivo, como hace la
+ * gracia de los 120 s, ni se revoca:
+ *
+ *  - **Dejarlo vivo** aquí no vale. Dentro de la ventana, un ladrón con copia de
+ *    R1 tendría que usarla en los dos minutos siguientes al gasto; aquí le basta
+ *    con llegar antes de que el aparato vuelva a renovar, que pueden ser horas.
+ *    Se lleva R3, el dueño sigue con R2 → R4, y quedan dos ramas vivas de las que
+ *    ninguna vuelve: la detección apagada un mes, el agujero de la regla 4 por
+ *    otra puerta.
+ *  - **Revocarlo** deja una sola rama, pero puede ser la del ladrón: el dueño
+ *    presenta R2, recibe `revoked`, vuelve a entrar con su contraseña, y R3 sigue
+ *    renovando treinta días sin que salte nada.
+ *  - **Darlo por gastado** desde el instante en que se gastó R1 (que ya está
+ *    fuera de la ventana, así que no tiene gracia propia, y no tiene sucesor):
+ *    si nadie lo tiene, que es lo de hoy, no cambia nada; si alguien lo presenta,
+ *    es un refresh gastado que vuelve, la regla 3 salta y se lleva también la
+ *    rama del ladrón. Va condicionado a que siga sin estrenar: si el aparato lo
+ *    estrenó entre la lectura y el retiro, la familia siguió con él y el que
+ *    vuelve con R1 es la copia → regla 3.
+ *
+ * Lo que esto afloja, dicho claro: quien tenga una copia de R1 y la presente
+ * antes de que el dueño vuelva a renovar recibe un par. Lo que no consigue es
+ * quedárselo en silencio: en la siguiente renovación del dueño se cierra la
+ * cuenta entera, igual que antes.
  */
 export const SEGUNDOS_DE_GRACIA = 120;
 
@@ -188,8 +235,8 @@ export type MotivoDeFallo =
     /** Ya se había canjeado. Es la regla 3: se revoca la cuenta entera. */
     | 'reuse'
     /**
-     * Ya se había canjeado, vuelve DENTRO de la ventana, pero su única gracia ya
-     * se gastó (regla 4). No se emite par y NO se cierra la cuenta: quien vuelve
+     * Ya se había canjeado, vuelve DENTRO de la ventana (o fuera, con el sucesor
+     * sin estrenar), pero su única gracia ya se gastó (regla 4). No se emite par y NO se cierra la cuenta: quien vuelve
      * una tercera vez con el mismo refresh es casi siempre un aparato que perdió
      * dos respuestas seguidas —el ladrón, que sí recibió su par en la primera,
      * no tiene ningún motivo para insistir con el viejo—, así que castigar esto
@@ -500,6 +547,7 @@ async function renovarSinAmparo(raw: string, aparato?: DatosDelAparato): Promise
             expiresAt: true,
             usedAt: true,
             revokedAt: true,
+            replacedBy: true,
         },
     });
     // Un token que no está en la tabla no dice de quién es, así que no hay nada
@@ -518,11 +566,21 @@ async function renovarSinAmparo(raw: string, aparato?: DatosDelAparato): Promise
         //     exactamente el daño que la gracia venía a quitar. Cerrar lo ya
         //     cerrado no protege de nada: la familia está muerta y el token no
         //     abre ninguna puerta.
-        //  2. **Fuera de la ventana → la regla 3, intacta.** Cuenta entera.
-        //  3. **Dentro de la ventana → la gracia, UNA vez** (regla 4).
+        //  2. **Fuera de la ventana y con el sucesor ya estrenado → la regla 3,
+        //     intacta.** Cuenta entera.
+        //  3. **Dentro de la ventana, o con el sucesor sin estrenar → la gracia,
+        //     UNA vez** (regla 4). Lo segundo es el 15/10/2026: ver `SEGUNDOS_DE_GRACIA`.
         if (fila.revokedAt) return { ok: false, motivo: 'revoked' };
-        if (!dentroDeLaGracia(fila.usedAt, ahora)) return esUnRobo(fila, aparato, false);
-        return conLaGracia(fila, ahora, aparato, 'la respuesta anterior no llegó');
+        if (dentroDeLaGracia(fila.usedAt, ahora)) {
+            return conLaGracia(fila, ahora, aparato, 'la respuesta anterior no llegó');
+        }
+        if (fila.replacedBy && (await sinEstrenar(fila.replacedBy))) {
+            return conLaGracia(fila, ahora, aparato, 'el par nuevo nunca se usó', {
+                id: fila.replacedBy,
+                desde: fila.usedAt,
+            });
+        }
+        return esUnRobo(fila, aparato, false);
     }
     if (fila.revokedAt) return { ok: false, motivo: 'revoked' };
 
@@ -594,7 +652,8 @@ async function conLaGracia(
     fila: FilaDeRefresh,
     ahora: Date,
     aparato: DatosDelAparato | undefined,
-    motivo: string
+    motivo: string,
+    perdido?: SucesorPerdido
 ): Promise<Renovacion> {
     // Igual que en el camino normal: sin la llave no se emite, y no se gasta la gracia.
     const cerrada = await puertaDeRenovar(fila, ahora, aparato);
@@ -620,7 +679,7 @@ async function conLaGracia(
         });
         return { ok: false, motivo: 'gracia_gastada' };
     }
-    return emitirDesde(fila, ahora, aparato, motivo);
+    return emitirDesde(fila, ahora, aparato, motivo, perdido);
 }
 
 /**
@@ -703,6 +762,15 @@ function dentroDeLaGracia(usado: Date, ahora: Date): boolean {
     return pasado >= 0 && pasado <= SEGUNDOS_DE_GRACIA * 1000;
 }
 
+/** ¿Sigue el sucesor sin gastar y sin revocar? Es la prueba de que el par nuevo no llegó (15/10/2026). */
+async function sinEstrenar(id: string): Promise<boolean> {
+    const s = await prisma.refreshToken.findUnique({ where: { id }, select: { usedAt: true, revokedAt: true } });
+    return !!s && !s.usedAt && !s.revokedAt;
+}
+
+/** El sucesor que no llegó y desde cuándo se da por gastado: el gasto de la fila vieja. */
+type SucesorPerdido = { id: string; desde: Date };
+
 /** La fila que hace falta para emitir. Se escribe suelta para poder pasarla. */
 type FilaDeRefresh = {
     id: string;
@@ -715,19 +783,21 @@ type FilaDeRefresh = {
 };
 
 /**
- * Emitir el par a partir de la fila ya comprobada. Es el final común de los tres
- * caminos: la renovación normal y las dos de gracia.
+ * Emitir el par a partir de la fila ya comprobada. Es el final común de los cuatro
+ * caminos: la renovación normal y las tres de gracia (ventana, carrera, sucesor sin estrenar).
  *
  * En los de gracia **se emite un par nuevo, no se repite el anterior**: el
  * anterior sólo existe aquí como `sha256`, así que devolverlo es imposible. El
- * que se perdió se queda en la tabla sin gastar y caduca solo — nadie lo tiene,
- * porque nunca llegó a ningún sitio.
+ * que se perdió dentro de la ventana se queda en la tabla sin gastar y caduca
+ * solo — nadie lo tiene, porque nunca llegó a ningún sitio. El de la gracia
+ * tardía (`perdido`) se da por gastado: el porqué, en `SEGUNDOS_DE_GRACIA`.
  */
 async function emitirDesde(
     fila: FilaDeRefresh,
     ahora: Date,
     aparato: DatosDelAparato | undefined,
-    gracia: string | null
+    gracia: string | null,
+    perdido?: SucesorPerdido
 ): Promise<Renovacion> {
     if (fila.expiresAt.getTime() <= ahora.getTime()) {
         await prisma.refreshToken.update({ where: { id: fila.id }, data: { revokedAt: ahora } });
@@ -749,6 +819,16 @@ async function emitirDesde(
             // volver como `delivery-apk` y pasar a pedir otra llave.
             aparato: { ...aparato, clientId: fila.clientId ?? CLIENTE_POR_DEFECTO },
         });
+        if (perdido) {
+            // DESPUÉS de emitir: si la base falla a medias, R2 sigue sin estrenar y el reintento sale
+            // `gracia_gastada`, no regla 3. Condicionado: si el aparato lo estrenó desde `sinEstrenar`, la
+            // copia es ésta, y el par recién emitido muere con la cuenta sin salir de aquí.
+            const retirado = await prisma.refreshToken.updateMany({
+                where: { id: perdido.id, usedAt: null, revokedAt: null },
+                data: { usedAt: perdido.desde },
+            });
+            if (retirado.count === 0) return esUnRobo(fila, aparato, true);
+        }
         // La sesión se estira con cada renovación. Sin esto, la caducidad natural
         // de better-auth (7 días) mataría a un aparato que lleva tres semanas
         // renovando sin fallo, y el refresh de 30 días no habría servido de nada.
@@ -762,10 +842,11 @@ async function emitirDesde(
         if (gracia) {
             // Se deja dicho, porque es lo que hay que poder contar después: la
             // cuenta NO se cerró, y por qué.
-            logger.warn('[apk-tokens] refresh repetido dentro de la ventana de gracia', {
+            logger.warn('[apk-tokens] refresh repetido: se concede la gracia', {
                 userId: fila.userId,
                 familyId: fila.familyId,
                 motivo: gracia,
+                ...(perdido ? { sucesorPerdido: perdido.id } : {}),
             });
             audit({
                 action: 'auth.refresh.gracia',
@@ -777,6 +858,7 @@ async function emitirDesde(
                     refreshTokenId: fila.id,
                     familyId: fila.familyId,
                     motivo: gracia,
+                    ...(perdido ? { sucesorPerdido: perdido.id } : {}),
                     // Se ANOTA, no se exige. Un ladrón que copia el refresh copia
                     // también la cabecera, así que esto no sirve de guarda; sirve
                     // para poder mirar después si la gracia la están usando redes

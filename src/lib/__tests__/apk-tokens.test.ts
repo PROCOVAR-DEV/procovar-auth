@@ -799,6 +799,162 @@ describe('la gracia se concede UNA sola vez por fila', () => {
 })
 
 /**
+ * LA GRACIA TARDÍA: el sucesor sin estrenar prueba que el par nuevo no llegó.
+ *
+ * El 15/10/2026 el logístico de Santiago (app de escritorio) canjeó R1 a las
+ * 15:59:57, la respuesta con R2 se perdió, y la app volvió con R1 a las 16:03:49:
+ * 232 s, fuera de la ventana → «refresh reutilizado» y la cuenta entera fuera. R2
+ * no se había usado nunca. Las pruebas, en pareja: sucesor sin estrenar → gracia;
+ * sucesor ya estrenado (o revocado) → la regla 3 como siempre.
+ *
+ * Con varias filas DE VERDAD en memoria, porque aquí se mira R1 y su sucesor, y el
+ * retiro del sucesor va condicionado: un mock que siempre dice `{ count: 1 }` no
+ * distingue el código bueno del que no comprueba nada.
+ */
+describe('la gracia tardía: el sucesor sin estrenar (15/10/2026)', () => {
+    const R1 = 'el-R1'
+    const R2 = 'el-R2'
+    const SANTIAGO = 232 // de 15:59:57 a 16:03:49
+
+    function baseConFilas(...filas: Array<Record<string, unknown>>) {
+        const cumple = (f: Record<string, unknown>, w: Record<string, unknown>) =>
+            Object.entries(w).every(([k, v]) => (f[k] ?? null) === v)
+        mockRefresh.findUnique.mockImplementation((async ({ where }: never) => {
+            const f = filas.find((x) => cumple(x, where))
+            return f ? { ...f } : null
+        }) as never)
+        mockRefresh.updateMany.mockImplementation((async ({ where, data }: never) => {
+            const tocadas = filas.filter((x) => cumple(x, where))
+            tocadas.forEach((x) => Object.assign(x, data as object))
+            return { count: tocadas.length }
+        }) as never)
+        mockRefresh.update.mockImplementation((async ({ where, data }: never) =>
+            Object.assign(filas.find((x) => cumple(x, where))!, data as object)) as never)
+        mockRefresh.create.mockImplementation((async ({ data }: never) => {
+            const f = { id: `nueva${filas.length}`, usedAt: null, revokedAt: null, graceUsedAt: null, ...(data as object) }
+            filas.push(f)
+            return { id: f.id }
+        }) as never)
+        return filas
+    }
+    /** R1, gastado hace 232 s, con R2 como sucesor. */
+    const r1 = (extra: Record<string, unknown> = {}) =>
+        fila({ tokenHash: sha256(R1), usedAt: hace(SANTIAGO), replacedBy: 'rt2', clientId: 'delivery-apk', ...extra })
+    /** R2, el que salió y no llegó. */
+    const r2 = (extra: Record<string, unknown> = {}) => fila({ id: 'rt2', tokenHash: sha256(R2), ...extra })
+    const cuentaCerrada = () =>
+        mockSession.updateMany.mock.calls.some(([a]) => JSON.stringify(a.where) === JSON.stringify({ userId: 'u1', revokedAt: null }))
+
+    it('el caso del 15/10: R1 vuelve a los 232 s con R2 sin estrenar → par nuevo y la cuenta NO se cierra', async () => {
+        baseConFilas(r1(), r2())
+
+        const salida = await renovar(R1)
+
+        expect(salida.ok).toBe(true)
+        expect(mockRefresh.create).toHaveBeenCalledTimes(1)
+        expect(cuentaCerrada()).toBe(false)
+        expect(mockAudit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'auth.refresh.reuse' }))
+        // Queda dicho por qué, y cuál fue el que no llegó.
+        expect(mockAudit).toHaveBeenCalledWith(
+            expect.objectContaining({
+                action: 'auth.refresh.gracia',
+                meta: expect.objectContaining({ motivo: 'el par nuevo nunca se usó', sucesorPerdido: 'rt2' }),
+            })
+        )
+    })
+
+    it('...y una segunda vez con R1: `gracia_gastada`, sin par y sin cerrar la cuenta', async () => {
+        // Tras la primera, el sucesor de R1 es el par que SÍ salió (y tampoco se ha
+        // estrenado todavía): la gracia de la fila ya está gastada, y eso manda.
+        const filas = baseConFilas(r1(), r2())
+        await renovar(R1)
+        const nuevo = filas.find((f) => f.id === filas[0].replacedBy)!
+
+        expect(await renovar(R1)).toEqual({ ok: false, motivo: 'gracia_gastada' })
+        expect(mockRefresh.create).toHaveBeenCalledTimes(1)
+        expect(cuentaCerrada()).toBe(false)
+        // Y el par que sí llegó sigue vivo: la segunda vez no se lo lleva por delante.
+        expect(nuevo).toMatchObject({ usedAt: null, revokedAt: null })
+    })
+
+    it('el R2 que no llegó se da por gastado: si alguien lo presenta después, regla 3', async () => {
+        // La decisión de `SEGUNDOS_DE_GRACIA`: ni vivo (dos ramas) ni revocado (gana el
+        // ladrón en silencio). Se presenta EN SEGUIDA a propósito: se da por gastado desde
+        // el gasto de R1, ya fuera de la ventana, así que no tiene gracia propia.
+        baseConFilas(r1(), r2())
+        expect((await renovar(R1)).ok).toBe(true)
+
+        expect(await renovar(R2)).toEqual({ ok: false, motivo: 'reuse' })
+        expect(cuentaCerrada()).toBe(true)
+    })
+
+    it('R1 a los 232 s con R2 YA estrenado: `reuse` y la cuenta entera, como siempre', async () => {
+        // La pareja de la primera: la familia siguió adelante con R2, así que el R1 que
+        // vuelve es una copia.
+        baseConFilas(r1(), r2({ usedAt: hace(200), replacedBy: 'rt3' }))
+
+        expect(await renovar(R1)).toEqual({ ok: false, motivo: 'reuse' })
+        expect(mockRefresh.create).not.toHaveBeenCalled()
+        expect(cuentaCerrada()).toBe(true)
+    })
+
+    it('...también si R1 ya gastó su gracia: `reuse`, NO `gracia_gastada`', async () => {
+        // R1 tuvo su gracia, el aparato SÍ recibió ese par y siguió con él; el R1 que
+        // vuelve después es una copia. Si el sucesor no se mirara antes, esto caería en
+        // `gracia_gastada` y la regla 3 no saltaría.
+        baseConFilas(r1({ graceUsedAt: hace(SANTIAGO - 5) }), r2({ usedAt: hace(200), replacedBy: 'rt3' }))
+
+        expect(await renovar(R1)).toEqual({ ok: false, motivo: 'reuse' })
+        expect(cuentaCerrada()).toBe(true)
+    })
+
+    it('con el sucesor revocado no hay gracia tardía', async () => {
+        baseConFilas(r1(), r2({ revokedAt: hace(100) }))
+
+        expect(await renovar(R1)).toEqual({ ok: false, motivo: 'reuse' })
+        expect(mockRefresh.create).not.toHaveBeenCalled()
+    })
+
+    it('si R2 se estrena entre la comprobación y el retiro, el R1 que vuelve es la copia: regla 3', async () => {
+        const filas = baseConFilas(r1(), r2())
+        const leer = mockRefresh.findUnique.getMockImplementation()!
+        mockRefresh.findUnique.mockImplementation((async (a: { where: { id?: string } }) => {
+            const leida = await leer(a as never)
+            // El aparato renueva con R2 justo después de que `sinEstrenar` lo viera limpio.
+            if (a.where.id === 'rt2') filas[1].usedAt = new Date()
+            return leida
+        }) as never)
+
+        expect(await renovar(R1)).toEqual({ ok: false, motivo: 'reuse' })
+        expect(cuentaCerrada()).toBe(true)
+        // El par que se llegó a emitir no sale de aquí y muere con la cuenta.
+        expect(filas[2]).toMatchObject({ revokedAt: expect.any(Date) })
+    })
+
+    it('si la base cae al emitir, R2 sigue sin estrenar y el reintento NO cierra la cuenta', async () => {
+        // Por eso el retiro va DESPUÉS de emitir: retirado antes, el reintento vería R2
+        // «gastado» y saltaría la regla 3 por una caída nuestra.
+        const filas = baseConFilas(r1(), r2())
+        mockRefresh.create.mockRejectedValueOnce(new Error('base caída'))
+
+        expect(await renovar(R1).catch((e) => e)).toBeInstanceOf(ComprobacionNoDisponible)
+        expect(filas[1]).toMatchObject({ usedAt: null, revokedAt: null })
+
+        expect(await renovar(R1)).toEqual({ ok: false, motivo: 'gracia_gastada' })
+        expect(cuentaCerrada()).toBe(false)
+    })
+
+    it('R1 caducado: `expired`, sin par, sin cerrar la cuenta y sin tocar R2', async () => {
+        const filas = baseConFilas(r1({ expiresAt: new Date(Date.now() - 1000) }), r2())
+
+        expect(await renovar(R1)).toEqual({ ok: false, motivo: 'expired' })
+        expect(mockRefresh.create).not.toHaveBeenCalled()
+        expect(cuentaCerrada()).toBe(false)
+        expect(filas[1]).toMatchObject({ usedAt: null, revokedAt: null })
+    })
+})
+
+/**
  * LA GRACIA NO SE ATA AL APARATO, y es una decisión, no un olvido.
  *
  * `clientId` y `userAgent` los escribe el cliente: quien copió el refresh copió la
