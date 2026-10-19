@@ -507,3 +507,71 @@ describe('el CRM entra por la misma puerta: `client_id: crm-apk` con `crm.entrar
         expect(db.refreshToken.create.mock.calls[0][0].data.clientId).toBe('crm-apk')
     })
 })
+
+describe('Transferencias entra por la misma puerta: `client_id: transferencias-apk` con `transferencias.entrar` (19/10/2026)', () => {
+    const entrar = async (cuerpo: Record<string, unknown> = {}) => {
+        const res = await token({
+            headers: new Headers({ 'user-agent': 'transferencias/1.0' }),
+            json: async () => ({ email: 'y@procovar.local', password: 'buena', ...cuerpo }),
+        } as never)
+        return { status: res.status, body: await res.json() }
+    }
+    const claims = (t: string) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString())
+
+    beforeEach(() => {
+        betterAuth.signInEmail.mockResolvedValue({ token: 'tok-de-este-intento' })
+        db.session.findUnique.mockResolvedValue({ id: 's-nueva', userId: 'u1' })
+        db.session.deleteMany.mockResolvedValue({ count: 1 })
+    })
+
+    it('con transferencias.entrar: par; el token lleva azp, email, name y la llave en `entradas`', async () => {
+        db.user.findUnique.mockResolvedValue(persona(['transferencias.entrar']))
+        const r = await entrar({ client_id: 'transferencias-apk' })
+        expect(r.status).toBe(200)
+        const c = claims(r.body.token)
+        expect(c.azp).toBe('transferencias-apk')
+        expect(c.entradas).toEqual(['transferencias.entrar'])
+        expect(typeof c.email).toBe('string')
+        expect(typeof c.name).toBe('string')
+        expect(c.purpose).toBe('apk:access')
+        expect(db.refreshToken.create.mock.calls[0][0].data.clientId).toBe('transferencias-apk')
+        expect(db.session.updateMany).toHaveBeenCalledWith(
+            expect.objectContaining({ data: expect.objectContaining({ clientId: 'transferencias-apk' }) }),
+        )
+    })
+
+    it('pareja: SIN la llave es 403 sin_permiso que nombra a Transferencias, y no hay par', async () => {
+        db.user.findUnique.mockResolvedValue(persona(['delivery.entrar', 'crm.entrar', 'aft.entrar']))
+        const r = await entrar({ client_id: 'transferencias-apk' })
+        expect(r.status).toBe(403)
+        expect(r.body.codigo).toBe('sin_permiso')
+        expect(r.body.message).toContain('Transferencias')
+        expect(r.body.token).toBeUndefined()
+        expect(db.refreshToken.create).not.toHaveBeenCalled()
+    })
+
+    it('la llave de Transferencias NO abre Reparto ni el CRM', async () => {
+        db.user.findUnique.mockResolvedValue(persona(['transferencias.entrar']))
+        expect((await entrar()).status).toBe(403)
+        expect((await entrar({ client_id: 'crm-apk' })).status).toBe(403)
+    })
+
+    it('un client_id desconocido sigue siendo 400, sin tocar la contraseña', async () => {
+        for (const client_id of ['transferencias', 'transferencias-web', 'lo-que-sea']) {
+            expect((await entrar({ client_id })).status).toBe(400)
+        }
+        expect(betterAuth.signInEmail).not.toHaveBeenCalled()
+    })
+
+    it('al renovar, una fila transferencias-apk pide transferencias.entrar y el refresh nuevo SIGUE siéndolo', async () => {
+        filaDeRefresh({ clientId: 'transferencias-apk' })
+        db.user.findUnique.mockResolvedValue(persona(['delivery.entrar']))
+        expect((await pedirRefresh()).status).toBe(403)
+
+        db.user.findUnique.mockResolvedValue(persona(['transferencias.entrar']))
+        const r = await pedirRefresh()
+        expect(r.status).toBe(200)
+        expect(claims(r.body.token).azp).toBe('transferencias-apk')
+        expect(db.refreshToken.create.mock.calls[0][0].data.clientId).toBe('transferencias-apk')
+    })
+})

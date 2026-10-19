@@ -127,7 +127,7 @@ describe('entradas: lo que firman el exchange y el JWT de la APK', () => {
         // que aquí se mira lo que se FIRMA con otro cliente, y el JWT se mira tal cual.
         codigos.consumeAuthCode.mockResolvedValue({ userId: 'u1', clientId: 'pedido', sessionToken: 'tok', returnTo: null })
         const { web, apk } = await lasDosVias()
-        expect(web).toEqual(['pedido.entrar', 'analitics.entrar', 'aft.entrar', 'ccsa.entrar', 'rutas.entrar', 'crm.entrar'])
+        expect(web).toEqual(['pedido.entrar', 'analitics.entrar', 'aft.entrar', 'ccsa.entrar', 'rutas.entrar', 'crm.entrar', 'transferencias.entrar'])
         expect(web).not.toContain('delivery.entrar')
         expect(apk).toEqual(web)
     })
@@ -149,13 +149,13 @@ describe('entradas: lo que firman el exchange y el JWT de la APK', () => {
         const { web, apk } = await lasDosVias()
         expect(web).toEqual([...LLAVES_DE_ENTRADA])
         expect(apk).toEqual([...LLAVES_DE_ENTRADA])
-        expect(web).toHaveLength(8)
+        expect(web).toHaveLength(9)
     })
 
     it('dos roles (rol por defecto + varias membresías): la UNIÓN, sin duplicados y en el orden del mapa', async () => {
         laPersonaEs({ porDefecto: 'GESTOR', membresias: ['LOGISTICO', 'ECONOMICA', 'LOGISTICO'] })
         const { web, apk } = await lasDosVias()
-        expect(web).toEqual(['pedido.entrar', 'aft.entrar', 'delivery.entrar', 'crm.entrar'])
+        expect(web).toEqual(['pedido.entrar', 'aft.entrar', 'delivery.entrar', 'crm.entrar', 'transferencias.entrar'])
         expect(apk).toEqual(web)
     })
 
@@ -170,11 +170,11 @@ describe('entradas: lo que firman el exchange y el JWT de la APK', () => {
         }
     })
 
-    it('el JWT no crece de forma absurda: como mucho ocho cadenas `<app>.entrar`', async () => {
+    it('el JWT no crece de forma absurda: como mucho nueve cadenas `<app>.entrar`', async () => {
         laPersonaEs({ admin: true, porDefecto: 'DESARROLLADOR', membresias: ['DESARROLLADOR', 'SUPER ADMIN', 'GERENTE'] })
         const claims = await porLaApk()
-        expect(claims.entradas as string[]).toHaveLength(8)
-        expect(new Set(claims.entradas as string[]).size).toBe(8)
+        expect(claims.entradas as string[]).toHaveLength(9)
+        expect(new Set(claims.entradas as string[]).size).toBe(9)
         for (const k of claims.entradas as string[]) expect(k).toMatch(/^[a-z]+\.entrar$/)
     })
 

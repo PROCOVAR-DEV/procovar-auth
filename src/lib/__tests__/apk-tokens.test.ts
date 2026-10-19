@@ -274,6 +274,8 @@ describe('el CRM lee del token el código de vendedor y el supervisor (12/10/202
         expect(decodeJwt((await emitirPar({ userId: 'u1', sessionId: 's1' })).token).azp).toBe('delivery-apk')
         const crm = await emitirPar({ userId: 'u1', sessionId: 's1', aparato: { clientId: 'crm-apk' } })
         expect(decodeJwt(crm.token).azp).toBe('crm-apk')
+        const tr = await emitirPar({ userId: 'u1', sessionId: 's1', aparato: { clientId: 'transferencias-apk' } })
+        expect(decodeJwt(tr.token).azp).toBe('transferencias-apk')
     })
 
     it('la lista de APK no se separa de la que la cookie de flujo rechaza (`sesiones-de-la-persona.ts`)', () => {

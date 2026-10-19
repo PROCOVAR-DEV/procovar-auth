@@ -75,7 +75,7 @@ export const ROLE_DESCRIPTIONS: Record<SystemRoleName, string> = {
   OPERADOR:
     'El de facturación. Lee los pedidos de su sucursal y los marca como completados, que es su trabajo entero. Sin informes y sin ver nada de otras sucursales.',
   ECONOMICA:
-    'La económica de su sucursal. Lleva el inventario de activos fijos: los da de alta, los mueve, los exporta y mantiene el catálogo de áreas, ubicaciones y responsables. No toca pedidos ni clientes, y no ve nada de otras sucursales.',
+    'La económica de su sucursal. Lleva el inventario de activos fijos: los da de alta, los mueve, los exporta y mantiene el catálogo de áreas, ubicaciones y responsables; y entra a Transferencias para revisar el cuadre. No toca pedidos ni clientes, y no ve nada de otras sucursales.',
   ANALISTA:
     'Todavía sin permisos: el rol existe para poder asignarlo, pero hasta que se le diga qué puede ver no abre ninguna pantalla. Quien lo lleve entra y no encuentra nada, y eso es a propósito — un rol vacío no da de más por accidente.',
   LOGISTICO:
@@ -123,6 +123,12 @@ const VENDE = 'vendedor.codigo'
  * (Jose, 12/10/2026). Fuera de GESTOR_KEYS porque OPERADOR las hereda.
  */
 const CRM = 'crm.entrar'
+
+/**
+ * Entrar a Transferencias (web y APK): ECONOMICA (explícito) y, por `allKeys()`,
+ * DESARROLLADOR, SUPER ADMIN, ADMINISTRADOR y GERENTE. Nadie más (Jose, 19/10/2026).
+ */
+const TRANSFERENCIAS = 'transferencias.entrar'
 
 /**
  * El Operador factura: lee los pedidos de su sucursal, los completa y copia los
@@ -279,7 +285,11 @@ export function systemRolePermissionKeys(role: string): string[] {
      * Y NADA de pedidos ni clientes: no es su trabajo. Si alguna hace además otra
      * cosa, se le añade el rol que toque encima; los permisos se suman.
      */
-    case 'ECONOMICA': return PERMISSION_CATALOG.filter((p) => p.service === 'aft' && !p.isDeprecated).map((p) => p.key)
+    case 'ECONOMICA': return [
+      ...PERMISSION_CATALOG.filter((p) => p.service === 'aft' && !p.isDeprecated).map((p) => p.key),
+      // Y el cuadre de Transferencias (pedido por Jose, 19/10/2026).
+      TRANSFERENCIAS,
+    ]
     /*
      * ANALISTA nace VACÍO, a propósito.
      *
