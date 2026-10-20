@@ -129,7 +129,7 @@ export const APLICACIONES_DE_LA_CASA: Destino[] = [
     },
     {
         clientId: 'transferencias',
-        href: 'https://transferencias.procovar.cloud',
+        href: 'https://cuadre.procovar.cloud',
         icono: 'lucide:arrow-left-right',
         titulo: 'Transferencias',
         descripcion: 'Cuadre de transferencias bancarias con las facturas.',
