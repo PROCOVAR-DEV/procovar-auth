@@ -93,6 +93,21 @@ async function main() {
             select: { id: true, defaultRoleId: true },
         })
 
+        // El código de vendedor es único: si ya lo lleva OTRA cuenta, casi seguro es la misma
+        // persona con otro usuario (leodan.quesada / leodan.quedada, 21/10/2026). Crearla la
+        // duplicaría y el índice único tumbaba el script entero: se salta y se dice.
+        if (p.codigo_vendedor) {
+            const duena = await prisma.user.findFirst({
+                where: { codigoVendedor: p.codigo_vendedor, ...(existente ? { id: { not: existente.id } } : {}) },
+                select: { username: true, email: true },
+            })
+            if (duena) {
+                console.log(`  ${username}: el código ${p.codigo_vendedor} ya es de ${duena.username ?? duena.email}, se salta (revisar a mano)`)
+                saltadas++
+                continue
+            }
+        }
+
         if (existente) {
             // A quien ya estaba se le COMPLETA lo nuevo, no se le pisa lo que tiene:
             // puede habérsele ajustado el rol a mano aquí, y esto no viene a deshacerlo.
