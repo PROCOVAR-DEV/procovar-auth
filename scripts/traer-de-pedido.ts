@@ -70,8 +70,9 @@ async function main() {
 
     const roles = await prisma.role.findMany({ select: { id: true, name: true } })
     const rolPorNombre = new Map(roles.map((r) => [r.name, r.id]))
-    const sucursales = await prisma.organization.findMany({ select: { id: true, slug: true } })
-    const porCodigo = new Map(sucursales.map((s) => [s.slug.toUpperCase(), s.id]))
+    const sucursales = await prisma.organization.findMany({ select: { id: true, codigo: true } })
+    // Por el CÓDIGO (CAM, PLS…), que es el de PEDIDO: el slug de Palma Soriano es «palma-soriano» y no casaba.
+    const porCodigo = new Map(sucursales.filter((s) => s.codigo).map((s) => [s.codigo!.toUpperCase(), s.id]))
 
     let traidas = 0, completadas = 0, saltadas = 0
 
@@ -92,6 +93,21 @@ async function main() {
             where: { username },
             select: { id: true, defaultRoleId: true },
         })
+
+        // El código de vendedor es único: si ya lo lleva OTRA cuenta, casi seguro es la misma
+        // persona con otro usuario (leodan.quesada / leodan.quedada, 21/10/2026). Crearla la
+        // duplicaría y el índice único tumbaba el script entero: se salta y se dice.
+        if (p.codigo_vendedor) {
+            const duena = await prisma.user.findFirst({
+                where: { codigoVendedor: p.codigo_vendedor, ...(existente ? { id: { not: existente.id } } : {}) },
+                select: { username: true, email: true },
+            })
+            if (duena) {
+                console.log(`  ${username}: el código ${p.codigo_vendedor} ya es de ${duena.username ?? duena.email}, se salta (revisar a mano)`)
+                saltadas++
+                continue
+            }
+        }
 
         if (existente) {
             // A quien ya estaba se le COMPLETA lo nuevo, no se le pisa lo que tiene:
