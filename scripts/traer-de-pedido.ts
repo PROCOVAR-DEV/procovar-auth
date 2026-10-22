@@ -70,8 +70,9 @@ async function main() {
 
     const roles = await prisma.role.findMany({ select: { id: true, name: true } })
     const rolPorNombre = new Map(roles.map((r) => [r.name, r.id]))
-    const sucursales = await prisma.organization.findMany({ select: { id: true, slug: true } })
-    const porCodigo = new Map(sucursales.map((s) => [s.slug.toUpperCase(), s.id]))
+    const sucursales = await prisma.organization.findMany({ select: { id: true, codigo: true } })
+    // Por el CÓDIGO (CAM, PLS…), que es el de PEDIDO: el slug de Palma Soriano es «palma-soriano» y no casaba.
+    const porCodigo = new Map(sucursales.filter((s) => s.codigo).map((s) => [s.codigo!.toUpperCase(), s.id]))
 
     let traidas = 0, completadas = 0, saltadas = 0
 
