@@ -1,4 +1,4 @@
-import { betterAuth } from "better-auth";
+import { betterAuth, BASE_ERROR_CODES } from "better-auth";
 import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { organization } from "better-auth/plugins";
@@ -163,7 +163,8 @@ export const auth = betterAuth({
         // después, que es de lo que va el reparto entero.
         //
         // Ver `src/lib/uuidv7.ts` para el porqué largo y las trampas.
-        database: { generateId: () => uuidv7() },
+        // `joins` estaba en `experimental` con better-auth 1.4; en la 1.7 vive aquí.
+        database: { generateId: () => uuidv7(), joins: true },
         cookiePrefix: 'qb',
         useSecureCookies: process.env.NODE_ENV === 'production',
         // Without this, better-auth only reads `x-forwarded-for` and discards it
@@ -177,7 +178,6 @@ export const auth = betterAuth({
             domain: process.env.ROOT_DOMAIN || "localhost",
         },
     },
-    experimental: { joins: true },
     // Cerrar sesión en Accesos se avisa a las demás aplicaciones (`docs/sesion-unica.md`).
     hooks: { before: cerrarSesionesAntes, after: cerrarSesionesDespues },
     plugins: [
@@ -241,7 +241,7 @@ export const auth = betterAuth({
                     // Una cuenta de baja (`activo=false`) no abre sesión. Va ANTES de todo y con el mismo error que
                     // una contraseña mala: este hook corre cuando la clave ya es buena, y otro mensaje lo confirmaría.
                     const persona = await prisma.user.findUnique({ where: { id: session.userId }, select: { activo: true } });
-                    if (persona?.activo === false) throw new APIError('UNAUTHORIZED', { message: 'Invalid email or password' });
+                    if (persona?.activo === false) throw APIError.from('UNAUTHORIZED', BASE_ERROR_CODES.INVALID_EMAIL_OR_PASSWORD);
                     if (!ctx) return;
 
                     const clientId = clientIdFromFlowCookie(ctx.headers?.get('cookie'));
