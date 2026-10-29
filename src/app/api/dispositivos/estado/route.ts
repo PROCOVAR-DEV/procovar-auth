@@ -11,7 +11,7 @@
  *   404 { error: 'aparato_desconocido' }  el aparato no está registrado (se registra al renovar con `X-Aparato-Id`) o no es de esta persona
  *
  * **La persona y la aplicación salen del TOKEN, nunca del cuerpo ni de las cabeceras**: un aparato solo puede contar el
- * estado de SU fila (`clientId` del token + `aparatoId` + `userId` del token). No es crítico: la aplicación no reintenta en
+ * estado de una fila donde SU cuenta ya ha entrado (`clientId` del token + `aparatoId` + `userId` del token en `DispositivoPersona`). No es crítico: la aplicación no reintenta en
  * bucle y esto no toca la sesión de nadie.
  */
 import { NextResponse, type NextRequest } from 'next/server';
@@ -70,10 +70,11 @@ async function manejar(req: NextRequest) {
     try {
         const fila = await prisma.dispositivo.findUnique({
             where: { clientId_aparatoId: { clientId: azp, aparatoId } },
-            select: { id: true, userId: true, bloqueadoAt: true },
+            // Solo una cuenta que YA ha entrado en este aparato (varias personas usan un mismo PC) cuenta su estado.
+            select: { id: true, bloqueadoAt: true, personas: { where: { userId: sub }, select: { id: true } } },
         });
-        // Solo el dueño del aparato cuenta su estado: otra persona con un token válido no puede escribir en esta fila.
-        if (!fila || fila.userId !== sub) return json({ error: 'aparato_desconocido' }, 404);
+        // Otra persona con un token válido no puede escribir en una fila donde nunca ha entrado.
+        if (!fila || fila.personas.length === 0) return json({ error: 'aparato_desconocido' }, 404);
 
         const e = leerEstadoInformado(cuerpo);
         await prisma.dispositivo.update({

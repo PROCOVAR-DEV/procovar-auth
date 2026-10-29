@@ -56,6 +56,23 @@ describe('la fila', () => {
         expect(f.marca).toBe('bloqueado')
         expect(f.bloqueado).toBe(true)
     })
+    it('TODAS las cuentas que entraron en el aparato, la más reciente primero, con su nombre', () => {
+        const nombres = new Map([['u1', 'Dainel'], ['u2', 'Amado'], ['u3', 'Javier']])
+        const f = aFila({
+            ...D, userId: 'u2',
+            personas: [
+                { userId: 'u1', primeraVez: hace(30), vistoAt: hace(20), version: '1.0.45' },
+                { userId: 'u2', primeraVez: hace(2), vistoAt: hace(1), version: '1.0.47' },
+                { userId: 'u3', primeraVez: hace(40), vistoAt: hace(10), version: '1.0.45' },
+            ],
+        }, nombres, null, AHORA)
+        expect(f.cuentas.map((c) => c.persona)).toEqual(['Amado', 'Javier', 'Dainel'])
+        expect(f.cuentas[0]).toMatchObject({ version: '1.0.47' })
+        expect(f.persona).toBe('Amado')
+    })
+    it('sin cuentas anotadas (un aparato anterior) no rompe: lista vacía', () => {
+        expect(aFila(D, new Map(), null, AHORA).cuentas).toEqual([])
+    })
     it('el resumen cuenta cada marca', () => {
         const filas = [D, { ...D, rechazados: 2 }, { ...D, vistoAt: hace(500) }, { ...D, bloqueadoAt: hace(1) }, { ...D, estadoAt: null }]
             .map((d) => aFila(d, personas, null, AHORA))

@@ -123,12 +123,19 @@ export async function registrarDispositivo(d: DatosDeRegistro): Promise<boolean>
             vistoAt: ahora,
             ...(d.familyId ? { familyId: d.familyId } : {}),
         };
-        await prisma.dispositivo.upsert({
+        const fila = await prisma.dispositivo.upsert({
             where: { clientId_aparatoId: { clientId: d.clientId, aparatoId: d.aparatoId } },
             create: { userId: d.userId, clientId: d.clientId, aparatoId: d.aparatoId, equipo: d.equipo, primeraVez: ahora, ...comunes },
             // El nombre que le puso el aparato solo se pisa si trae uno; el que puso un administrador (`nombre`) no se toca.
-            // `userId` sí se actualiza: si otra persona inicia sesión en el mismo aparato, el aparato es ahora de ella.
+            // `userId` es la ÚLTIMA cuenta que entró; TODAS quedan anotadas en `DispositivoPersona` (abajo).
             update: { userId: d.userId, ...(d.equipo ? { equipo: d.equipo } : {}), ...comunes },
+            select: { id: true },
+        });
+        // QUÉ CUENTA entró en este aparato: un mismo PC lo usan varias personas y todas tienen que quedar (Jose, 29/10/2026).
+        await prisma.dispositivoPersona.upsert({
+            where: { dispositivoId_userId: { dispositivoId: fila.id, userId: d.userId } },
+            create: { dispositivoId: fila.id, userId: d.userId, sucursal: d.sucursal, version, primeraVez: ahora, vistoAt: ahora },
+            update: { sucursal: d.sucursal, version, vistoAt: ahora },
         });
         return true;
     } catch (e) {

@@ -82,6 +82,14 @@ https://crm.procovar.cloud/dispositivos/{aparatoId}
 El botón «Ver actividad» de la pestaña abre esa dirección. La pantalla la protege la propia aplicación (con la
 sesión de Accesos, como todo). Reparto ya tiene su sincronización con esos datos y hará la suya como ejemplo.
 
+## Un mismo PC, VARIAS cuentas (Jose, 29/10/2026)
+
+Un aparato (la instalación, `X-Aparato-Id`) lo pueden usar varias personas, y hay que saber **cada cuenta que entró**, aunque sea el mismo
+ordenador. Por eso Accesos guarda dos cosas distintas: el **aparato** (uno por instalación) y, aparte, **una fila por cada cuenta que ha
+entrado en él** (`dispositivo_persona`: primera vez, última vez y versión con la que entró). `dispositivo.userId` es solo la **última**
+cuenta; el historial de quién lo usó está en las filas de cuentas. Se anota en cada renovación y entrada. Bloquear es del aparato (se
+bloquea el PC, para todas sus cuentas); la pantalla enseña todas las cuentas de cada aparato, la más reciente primero.
+
 ## Cómo se ve en Accesos
 
 Pantalla **«Dispositivos»** (`/dashboard/dispositivos`; en esta primera versión **solo el administrador global**, SUPER ADMIN y
@@ -89,7 +97,7 @@ DESARROLLADOR, como todo el panel `/dashboard`; el ADMINISTRADOR de sucursal, co
 una pestaña por aplicación (Reparto y CRM siempre; las demás cuando tengan aparatos) (`Reparto`, `CRM`, …), con filtro por sucursal y
 persona. Por aparato:
 
-- **Persona** (con su nombre), **sucursal**, **aplicación y versión**, **plataforma**, **equipo**.
+- **Cuentas** (TODAS las que han entrado en ese aparato, con su nombre y cuándo), **sucursal**, **aplicación y versión**, **plataforma**, **equipo**.
 - **Visto por última vez**, última descarga, última subida (los dos últimos, si la app los informa).
 - **Pendientes** y **rechazados**, y el **último error**.
 - Una marca de color: *funciona* (visto hace poco y sin rechazados), *atascado* (pendientes o rechazados sin
@@ -106,7 +114,8 @@ interna y con credencial de servicio (HMAC, como `/api/service/almacenes`; **sin
 ```
 GET /api/service/dispositivos[?app=crm][&sucursal=STG][&desde=<ISO>][&limite=500][&despues=<cursor>]
 → 200 { dispositivos: [{ aparatoId, userId, app, sucursal, plataforma, version, nombre,
-                          estado: "activo" | "bloqueado", primeraVez, ultimaVez, actualizado }],
+                          estado: "activo" | "bloqueado", primeraVez, ultimaVez, actualizado,
+                          cuentas: [{ userId, primeraVez, ultimaVez }] }],
         truncado: boolean, siguiente: string | null, hasta: ISO }
 ```
 
@@ -114,6 +123,7 @@ GET /api/service/dispositivos[?app=crm][&sucursal=STG][&desde=<ISO>][&limite=500
   `dispositivos:<clientId>` por aplicación (`dispositivos:crm-apk`). Sin ese scope, 403 `sin_permiso_de_dispositivos`; con `?app=` de otra
   aplicación, 403 `app_no_permitida` (no una lista vacía); el comodín `*` no cuenta. **El CRM nunca ve un aparato de Reparto.** La
   migración `20261029160000_dispositivos` pone `dispositivos:crm-apk` a la credencial `crm`.
+- `userId` es la **última** cuenta que entró; `cuentas` lista TODAS las que han entrado en ese aparato (la más reciente primero).
 - `nombre`: el que le puso un administrador o, si no, el que informó el aparato. `actualizado`: última modificación de la ficha (para `desde=`).
 - **`truncado: true` = hay más**: pedir la siguiente tanda con `despues=<siguiente>`. Una tanda truncada **no** se da por buena.
 - Estados: solo `activo` y `bloqueado`. «Cerrar sesión» no es un estado (el aparato puede volver a entrar); bloquear sí.

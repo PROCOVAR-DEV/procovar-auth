@@ -98,6 +98,24 @@ describe('la respuesta', () => {
         expect(cuerpo.siguiente).toBeNull()
     })
 
+    it('lleva TODAS las cuentas que han entrado en cada aparato (un PC lo usan varias personas), y las pide a la base', async () => {
+        db.dispositivo.findMany.mockResolvedValue([
+            fila(1, {
+                personas: [
+                    { userId: 'u2', primeraVez: new Date('2026-10-28T21:15:00Z'), vistoAt: new Date('2026-10-29T12:00:00Z') },
+                    { userId: 'u1', primeraVez: new Date('2026-10-27T19:11:00Z'), vistoAt: new Date('2026-10-28T21:40:00Z') },
+                ],
+            }),
+        ])
+        const cuerpo = await (await get('')).json()
+        expect(db.dispositivo.findMany.mock.calls[0][0].include.personas.orderBy).toEqual({ vistoAt: 'desc' })
+        expect(cuerpo.dispositivos[0].cuentas).toEqual([
+            { userId: 'u2', primeraVez: '2026-10-28T21:15:00.000Z', ultimaVez: '2026-10-29T12:00:00.000Z' },
+            { userId: 'u1', primeraVez: '2026-10-27T19:11:00.000Z', ultimaVez: '2026-10-28T21:40:00.000Z' },
+        ])
+        expect(cuerpo.dispositivos[0].userId).toBe('u1')
+    })
+
     it('`desde` filtra por la última modificación; uno que no es una fecha es 400', async () => {
         db.dispositivo.findMany.mockResolvedValue([])
         await get('?desde=2026-10-29T00:00:00Z')

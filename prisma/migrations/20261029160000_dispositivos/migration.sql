@@ -36,6 +36,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS "dispositivo_clientId_aparatoId_key" ON "dispo
 CREATE INDEX IF NOT EXISTS "dispositivo_userId_idx" ON "dispositivo"("userId");
 CREATE INDEX IF NOT EXISTS "dispositivo_clientId_vistoAt_idx" ON "dispositivo"("clientId", "vistoAt");
 
+-- TODAS las cuentas que han entrado en cada aparato (un mismo PC lo usan varias personas); `dispositivo.userId` es solo la última.
+CREATE TABLE IF NOT EXISTS "dispositivo_persona" (
+    "id"            TEXT NOT NULL,
+    "dispositivoId" TEXT NOT NULL,
+    "userId"        TEXT NOT NULL,
+    "sucursal"      TEXT,
+    "version"       TEXT,
+    "primeraVez"    TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "vistoAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "dispositivo_persona_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "dispositivo_persona_dispositivoId_userId_key" ON "dispositivo_persona"("dispositivoId", "userId");
+CREATE INDEX IF NOT EXISTS "dispositivo_persona_userId_idx" ON "dispositivo_persona"("userId");
+ALTER TABLE "dispositivo_persona" DROP CONSTRAINT IF EXISTS "dispositivo_persona_dispositivoId_fkey";
+ALTER TABLE "dispositivo_persona" ADD CONSTRAINT "dispositivo_persona_dispositivoId_fkey"
+    FOREIGN KEY ("dispositivoId") REFERENCES "dispositivo"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "dispositivo_persona" DROP CONSTRAINT IF EXISTS "dispositivo_persona_userId_fkey";
+ALTER TABLE "dispositivo_persona" ADD CONSTRAINT "dispositivo_persona_userId_fkey"
+    FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
 ALTER TABLE "dispositivo" DROP CONSTRAINT IF EXISTS "dispositivo_userId_fkey";
 ALTER TABLE "dispositivo" ADD CONSTRAINT "dispositivo_userId_fkey"
     FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;

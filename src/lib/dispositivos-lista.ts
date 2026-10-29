@@ -99,6 +99,8 @@ export interface FilaDeBD {
     vistoAt: Date;
     updatedAt: Date;
     bloqueadoAt: Date | null;
+    /** Todas las cuentas que han entrado en este aparato (la más reciente primero). */
+    personas?: { userId: string; primeraVez: Date; vistoAt: Date }[];
 }
 
 export interface DispositivoDeServicio {
@@ -115,6 +117,8 @@ export interface DispositivoDeServicio {
     ultimaVez: string;
     /** Cuándo cambió por última vez esta ficha (para `desde=`). */
     actualizado: string;
+    /** TODAS las cuentas que han entrado en este aparato (`userId` de arriba es solo la última), la más reciente primero. */
+    cuentas: { userId: string; primeraVez: string; ultimaVez: string }[];
 }
 
 export function aServicio(d: FilaDeBD): DispositivoDeServicio {
@@ -130,5 +134,6 @@ export function aServicio(d: FilaDeBD): DispositivoDeServicio {
         primeraVez: d.primeraVez.toISOString(),
         ultimaVez: d.vistoAt.toISOString(),
         actualizado: d.updatedAt.toISOString(),
+        cuentas: (d.personas ?? []).map((p) => ({ userId: p.userId, primeraVez: p.primeraVez.toISOString(), ultimaVez: p.vistoAt.toISOString() })),
     };
 }

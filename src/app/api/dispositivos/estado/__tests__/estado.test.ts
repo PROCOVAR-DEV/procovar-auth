@@ -37,7 +37,7 @@ async function llamar(cuerpo: unknown, cabeceras: Record<string, string> = {}, b
 beforeEach(() => {
     vi.resetAllMocks()
     limitador.rateLimit.mockResolvedValue({ allowed: true, remaining: 0 })
-    db.dispositivo.findUnique.mockResolvedValue({ id: 'd1', userId: 'u1', bloqueadoAt: null })
+    db.dispositivo.findUnique.mockResolvedValue({ id: 'd1', bloqueadoAt: null, personas: [{ id: 'dp1' }] })
     db.dispositivo.update.mockResolvedValue({})
 })
 
@@ -46,13 +46,14 @@ describe('quién puede contar el estado de un aparato', () => {
         const r = await llamar({ pendientes: 3, rechazados: 0, ultimaSubida: '2026-10-29T14:00:00Z', ultimoError: ' falló\nla subida ' })
         expect(r).toEqual({ status: 200, body: { ok: true, revocado: false } })
         expect(db.dispositivo.findUnique.mock.calls[0][0].where).toEqual({ clientId_aparatoId: { clientId: 'delivery-apk', aparatoId: ID } })
+        expect(db.dispositivo.findUnique.mock.calls[0][0].select.personas.where).toEqual({ userId: 'u1' })
         const data = db.dispositivo.update.mock.calls[0][0].data
         expect(data).toMatchObject({ pendientes: 3, rechazados: 0, ultimoError: 'falló la subida' })
         expect(data.estadoAt).toBeInstanceOf(Date)
     })
 
-    it('OTRA persona con un token válido NO escribe en la fila ajena', async () => {
-        db.dispositivo.findUnique.mockResolvedValue({ id: 'd1', userId: 'otra-persona', bloqueadoAt: null })
+    it('OTRA persona con un token válido NO escribe en un aparato donde nunca ha entrado (la búsqueda va con SU cuenta)', async () => {
+        db.dispositivo.findUnique.mockResolvedValue({ id: 'd1', bloqueadoAt: null, personas: [] })
         expect((await llamar({ pendientes: 99 })).status).toBe(404)
         expect(db.dispositivo.update).not.toHaveBeenCalled()
     })
@@ -94,7 +95,7 @@ describe('lo que llega', () => {
 
 describe('el bloqueo y los límites', () => {
     it('un aparato bloqueado se entera: `revocado: true`', async () => {
-        db.dispositivo.findUnique.mockResolvedValue({ id: 'd1', userId: 'u1', bloqueadoAt: new Date() })
+        db.dispositivo.findUnique.mockResolvedValue({ id: 'd1', bloqueadoAt: new Date(), personas: [{ id: 'dp1' }] })
         expect((await llamar({})).body).toEqual({ ok: true, revocado: true })
     })
     it('más de una por minuto: 200 `ignorado`, sin anotar nada', async () => {

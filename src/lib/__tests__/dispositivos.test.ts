@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const db = vi.hoisted(() => ({
     dispositivo: { upsert: vi.fn(), findUnique: vi.fn() },
+    dispositivoPersona: { upsert: vi.fn() },
 }));
 vi.mock('@/lib/prisma', () => ({ prisma: db }));
 
@@ -94,7 +95,8 @@ describe('registrarDispositivo: nunca rompe la renovación', () => {
     };
 
     it('crea o actualiza con la versión y la plataforma de AHORA', async () => {
-        db.dispositivo.upsert.mockResolvedValue({});
+        db.dispositivo.upsert.mockResolvedValue({ id: 'd1' });
+        db.dispositivoPersona.upsert.mockResolvedValue({});
         expect(await registrarDispositivo(datos)).toBe(true);
         const arg = db.dispositivo.upsert.mock.calls[0][0];
         expect(arg.where).toEqual({ clientId_aparatoId: { clientId: 'delivery-apk', aparatoId: ID } });
@@ -102,8 +104,25 @@ describe('registrarDispositivo: nunca rompe la renovación', () => {
         expect(arg.create).toMatchObject({ userId: 'u1', aparatoId: ID, version: '1.0.47' });
     });
 
+    it('QUÉ CUENTA entró: cada cuenta que entra en el mismo aparato queda anotada (un PC lo usan varias personas)', async () => {
+        db.dispositivo.upsert.mockResolvedValue({ id: 'd1' });
+        db.dispositivoPersona.upsert.mockResolvedValue({});
+        await registrarDispositivo(datos)
+        await registrarDispositivo({ ...datos, userId: 'u2', sucursal: 'HAB', userAgent: 'ProcovarReparto/1.0.45 (Windows)' })
+        const [a, b] = db.dispositivoPersona.upsert.mock.calls.map((c) => c[0])
+        expect(a.where).toEqual({ dispositivoId_userId: { dispositivoId: 'd1', userId: 'u1' } })
+        expect(b.where).toEqual({ dispositivoId_userId: { dispositivoId: 'd1', userId: 'u2' } })
+        expect(a.create).toMatchObject({ dispositivoId: 'd1', userId: 'u1', sucursal: 'STG', version: '1.0.47' })
+        expect(b.create).toMatchObject({ userId: 'u2', sucursal: 'HAB', version: '1.0.45' })
+        // La segunda cuenta NO borra a la primera: son dos filas distintas (la clave es aparato + persona).
+        expect(a.where.dispositivoId_userId.userId).not.toBe(b.where.dispositivoId_userId.userId)
+        // `userId` del aparato es solo la última; el historial está en las filas de arriba.
+        expect(db.dispositivo.upsert.mock.calls[1][0].update.userId).toBe('u2')
+    })
+
     it('sin nombre de equipo NO pisa el que ya tenía, y el nombre de un administrador nunca se toca', async () => {
-        db.dispositivo.upsert.mockResolvedValue({});
+        db.dispositivo.upsert.mockResolvedValue({ id: 'd1' });
+        db.dispositivoPersona.upsert.mockResolvedValue({});
         await registrarDispositivo({ ...datos, equipo: null });
         const arg = db.dispositivo.upsert.mock.calls[0][0];
         expect(arg.update).not.toHaveProperty('equipo');

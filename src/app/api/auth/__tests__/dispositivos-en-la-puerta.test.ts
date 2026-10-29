@@ -16,6 +16,7 @@ const db = vi.hoisted(() => ({
     refreshToken: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     session: { findUnique: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     dispositivo: { upsert: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
+    dispositivoPersona: { upsert: vi.fn() },
 }))
 const betterAuth = vi.hoisted(() => ({ signInEmail: vi.fn() }))
 const limitador = vi.hoisted(() => ({ rateLimit: vi.fn() }))
@@ -62,7 +63,8 @@ beforeEach(() => {
     db.refreshToken.updateMany.mockResolvedValue({ count: 1 })
     db.refreshToken.update.mockResolvedValue({})
     db.refreshToken.findUnique.mockResolvedValue(FILA_DE_REFRESH)
-    db.dispositivo.upsert.mockResolvedValue({})
+    db.dispositivo.upsert.mockResolvedValue({ id: 'd1' })
+    db.dispositivoPersona.upsert.mockResolvedValue({})
     db.dispositivo.findFirst.mockResolvedValue(null)
 })
 
@@ -77,6 +79,8 @@ describe('POST /api/auth/refresh con X-Aparato-Id', () => {
         expect(arg.update).toMatchObject({
             userId: 'u1', sucursal: 'STG', version: '1.0.47', plataforma: 'Windows', equipo: 'PC de Maikel', familyId: 'fam1',
         })
+        // Y la CUENTA queda anotada en ese aparato.
+        expect(db.dispositivoPersona.upsert.mock.calls[0][0].where).toEqual({ dispositivoId_userId: { dispositivoId: 'd1', userId: 'u1' } })
     })
 
     it('sin la cabecera, o con una que no es un UUID, NO anota nada y la renovación es la de siempre', async () => {

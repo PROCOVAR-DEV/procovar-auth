@@ -151,7 +151,7 @@ export function DispositivosTabla({
                         <thead>
                             <tr>
                                 <th>Estado</th>
-                                <th>Persona</th>
+                                <th>Cuentas</th>
                                 <th>Aparato</th>
                                 <th>Visto</th>
                                 <th>Descarga / subida</th>
@@ -168,8 +168,14 @@ export function DispositivosTabla({
                                         </span>
                                     </td>
                                     <td>
-                                        <div className="leading-tight">
-                                            <div>{f.persona}</div>
+                                        {/* TODAS las cuentas que han entrado en este aparato, la más reciente primero: un mismo PC lo usan varias personas. */}
+                                        <div className="flex flex-col gap-0.5 leading-tight">
+                                            {(f.cuentas.length ? f.cuentas : [{ persona: f.persona, vistoAt: f.vistoAt, primeraVez: f.vistoAt, version: f.version }]).slice(0, 5).map((c, i) => (
+                                                <div key={`${c.persona}-${i}`} className={i === 0 ? "" : "text-xs text-pv-tinta-suave"} title={`Primera vez: ${completa(c.primeraVez)} · Última: ${completa(c.vistoAt)}${c.version ? ` · versión ${c.version}` : ""}`}>
+                                                    {c.persona} <span className="text-xs text-pv-tinta-suave">· {hace(c.vistoAt)}</span>
+                                                </div>
+                                            ))}
+                                            {f.cuentas.length > 5 && <div className="text-xs text-pv-tinta-suave">y {f.cuentas.length - 5} más</div>}
                                             {f.sucursal && <div className="text-xs text-pv-tinta-suave">{f.sucursal}</div>}
                                         </div>
                                     </td>

@@ -79,6 +79,7 @@ model User {
   invitations   Invitation[]
   refreshTokens RefreshToken[]
   dispositivos  Dispositivo[]
+  usosDeDispositivo DispositivoPersona[]
 
   @@index([codigoVendedor])
   @@index([supervisorId])
@@ -574,8 +575,30 @@ model Dispositivo {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  /// TODAS las cuentas que han entrado en este aparato (un mismo PC lo usan varias personas): `userId` es solo la ÚLTIMA.
+  personas       DispositivoPersona[]
+
   @@unique([clientId, aparatoId])
   @@index([userId])
   @@index([clientId, vistoAt])
   @@map("dispositivo")
+}
+
+/// QUÉ CUENTA ENTRÓ EN QUÉ APARATO (Jose, 29/10/2026: «puede usar varias cuentas pero yo debo saber cada cuenta que entró, aunque sea
+/// una misma computadora»). Una fila por (aparato, persona): cuándo entró por primera vez, la última, y con qué versión. El aparato es
+/// la instalación (`X-Aparato-Id`); esto es quién la ha usado. Se actualiza en cada renovación.
+model DispositivoPersona {
+  id            String      @id @default(cuid())
+  dispositivoId String
+  dispositivo   Dispositivo @relation(fields: [dispositivoId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sucursal      String?
+  version       String?
+  primeraVez    DateTime    @default(now())
+  vistoAt       DateTime    @default(now())
+
+  @@unique([dispositivoId, userId])
+  @@index([userId])
+  @@map("dispositivo_persona")
 }

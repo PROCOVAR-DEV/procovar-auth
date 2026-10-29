@@ -54,13 +54,25 @@ export interface DispositivoDeBD {
     ultimoError: string | null;
     estadoAt: Date | null;
     bloqueadoAt: Date | null;
+    /** Todas las cuentas que han entrado en este aparato. */
+    personas?: { userId: string; primeraVez: Date; vistoAt: Date; version: string | null }[];
+}
+
+export interface CuentaDeFila {
+    persona: string;
+    primeraVez: string;
+    vistoAt: string;
+    version: string | null;
 }
 
 export interface FilaDeDispositivo {
     id: string;
     aparatoId: string;
     marca: Marca;
+    /** La última cuenta que entró. */
     persona: string;
+    /** TODAS las cuentas que han entrado en este aparato, la más reciente primero (un mismo PC lo usan varias personas). */
+    cuentas: CuentaDeFila[];
     sucursal: string | null;
     plataforma: string | null;
     version: string | null;
@@ -89,6 +101,14 @@ export function aFila(
         aparatoId: d.aparatoId,
         marca: marcaDelDispositivo(d, ahora),
         persona: personas.get(d.userId) ?? 'Persona dada de baja',
+        cuentas: [...(d.personas ?? [])]
+            .sort((a, b) => b.vistoAt.getTime() - a.vistoAt.getTime())
+            .map((p) => ({
+                persona: personas.get(p.userId) ?? 'Persona dada de baja',
+                primeraVez: p.primeraVez.toISOString(),
+                vistoAt: p.vistoAt.toISOString(),
+                version: p.version,
+            })),
         sucursal: d.sucursal,
         plataforma: d.plataforma,
         version: d.version,

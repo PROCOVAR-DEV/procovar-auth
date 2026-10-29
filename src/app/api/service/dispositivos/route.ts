@@ -15,6 +15,8 @@
  *     &despues=<cursor>          el `siguiente` de la tanda anterior.
  *
  *   200 { dispositivos: [...], truncado: boolean, siguiente: string | null, hasta: ISO }
+ *       cada dispositivo lleva `cuentas: [{ userId, primeraVez, ultimaVez }]`: TODAS las cuentas que han entrado en ese aparato (un mismo PC
+ *       lo usan varias personas); `userId` es solo la última.
  *   400 { error: 'app_invalida' | 'app_obligatoria' | 'desde_invalido' | 'cursor_invalido' }
  *   403 { error: 'sin_permiso_de_dispositivos' | 'app_no_permitida' }
  *
@@ -89,6 +91,7 @@ export const GET = withServiceAuth(async (req: NextRequest, ctx: ServiceAuthCont
         where: { AND: filtros },
         orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
         take: limite + 1,
+        include: { personas: { select: { userId: true, primeraVez: true, vistoAt: true }, orderBy: { vistoAt: 'desc' } } },
     });
     const truncado = filas.length > limite;
     const servidas = truncado ? filas.slice(0, limite) : filas;
