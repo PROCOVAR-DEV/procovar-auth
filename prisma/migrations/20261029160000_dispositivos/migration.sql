@@ -39,3 +39,9 @@ CREATE INDEX IF NOT EXISTS "dispositivo_clientId_vistoAt_idx" ON "dispositivo"("
 ALTER TABLE "dispositivo" DROP CONSTRAINT IF EXISTS "dispositivo_userId_fkey";
 ALTER TABLE "dispositivo" ADD CONSTRAINT "dispositivo_userId_fkey"
     FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- El CRM (credencial de servicio `crm`) puede leer y gestionar SOLO los aparatos de su APK (`crm-apk`): la aplicación sale de los
+-- scopes de la credencial (`dispositivos:<clientId>`), no de lo que mande. Idempotente; sin efecto si no existe ese cliente.
+UPDATE "ClientApp"
+   SET "scopes" = array_append("scopes", 'dispositivos:crm-apk')
+ WHERE "clientId" = 'crm' AND NOT ('dispositivos:crm-apk' = ANY("scopes"));
