@@ -30,7 +30,7 @@ acceso):
 | Cabecera | Valor | Ejemplo |
 |---|---|---|
 | `User-Agent` | `<Aplicación>/<versión> (<Plataforma>)` — **ya lo manda Reparto así** | `ProcovarCRM/2.3.1 (Android)` |
-| `X-Aparato-Id` | UUID v4 **estable de esta instalación**: se genera la primera vez que arranca la app, se guarda en sus preferencias y no cambia nunca (ni al renovar ni al actualizar). Si se reinstala, es otro aparato | `0f4c9c1e-8a3b-4d0e-9d62-6a1f3b6f2c10` |
+| `X-Aparato-Id` | **UUID v7** (no v4) **estable de esta instalación**: se genera la primera vez que arranca la app, se guarda en sus preferencias y no cambia nunca (ni al renovar ni al actualizar). Si se reinstala, es otro aparato. Un id que no sea un v7 bien formado **no se registra** (el aparato sigue funcionando, pero no aparece en Dispositivos). El CRM puede usar tal cual el id de instalación que ya tiene | `0192f3c4-8a3b-7d0e-9d62-6a1f3b6f2c10` |
 | `X-Aparato-Nombre` | *(opcional)* nombre legible del equipo, 1–80 caracteres, sin datos personales | `Samsung A14 de Palma` |
 
 Plataforma: una de `Android`, `Windows`, `iOS`, `macOS`, `Linux`. Versión: la de `pubspec`/`package.json` tal cual
