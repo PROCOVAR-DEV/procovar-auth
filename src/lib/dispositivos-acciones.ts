@@ -15,8 +15,10 @@ export type OrdenDeDispositivo =
     | { accion: 'bloquear' }
     | { accion: 'desbloquear' };
 
+/** EL APARATO EN UNA APLICACIÓN (`dispositivo_app`): lo que se bloquea o se cierra. El nombre, en cambio, es del aparato entero. */
 export interface FilaParaActuar {
     id: string;
+    dispositivoId: string;
     clientId: string;
     aparatoId: string;
     userId: string;
@@ -48,7 +50,10 @@ export async function aplicarOrden(
 
     switch (orden.accion) {
         case 'nombre': {
-            await prisma.dispositivo.update({ where: { id: fila.id }, data: { nombre: limpiarTexto(orden.nombre, 80) } });
+            // El nombre es del APARATO (lo comparten todas sus aplicaciones): se pisa en `dispositivo` y se sube el `updatedAt` de cada
+            // aplicación para que su lista con `desde=` lo recoja. Cada una recibe su aviso.
+            await prisma.dispositivo.update({ where: { id: fila.dispositivoId }, data: { nombre: limpiarTexto(orden.nombre, 80) } });
+            await prisma.dispositivoApp.updateMany({ where: { dispositivoId: fila.dispositivoId }, data: { updatedAt: new Date() } });
             motivo = 'renombrado';
             break;
         }
@@ -61,14 +66,14 @@ export async function aplicarOrden(
         }
         case 'bloquear': {
             bloqueadoAt = new Date();
-            await prisma.dispositivo.update({ where: { id: fila.id }, data: { bloqueadoAt, bloqueadoPor: actor.id } });
+            await prisma.dispositivoApp.update({ where: { id: fila.id }, data: { bloqueadoAt, bloqueadoPor: actor.id } });
             if (fila.familyId) await cerrarFamilia(fila.familyId);
             motivo = 'bloqueado';
             break;
         }
         case 'desbloquear': {
             bloqueadoAt = null;
-            await prisma.dispositivo.update({ where: { id: fila.id }, data: { bloqueadoAt: null, bloqueadoPor: null } });
+            await prisma.dispositivoApp.update({ where: { id: fila.id }, data: { bloqueadoAt: null, bloqueadoPor: null } });
             motivo = 'desbloqueado';
             break;
         }
@@ -82,9 +87,14 @@ export async function aplicarOrden(
         resource: fila.aparatoId,
         ip: aparato.ip ?? null,
         userAgent: aparato.userAgent ?? null,
-        meta: { dispositivoId: fila.id, persona: fila.userId, via: actor.via, ...(actor.via === 'servicio' ? { servicio: actor.id } : {}) },
+        meta: { dispositivoId: fila.dispositivoId, dispositivoAppId: fila.id, persona: fila.userId, via: actor.via, ...(actor.via === 'servicio' ? { servicio: actor.id } : {}) },
     });
 
-    await avisarDeDispositivo({ clientId: fila.clientId, aparatoId: fila.aparatoId, bloqueadoAt }, motivo);
+    if (orden.accion === 'nombre') {
+        const apps = await prisma.dispositivoApp.findMany({ where: { dispositivoId: fila.dispositivoId }, select: { clientId: true, bloqueadoAt: true } });
+        for (const a of apps) await avisarDeDispositivo({ clientId: a.clientId, aparatoId: fila.aparatoId, bloqueadoAt: a.bloqueadoAt }, motivo);
+    } else {
+        await avisarDeDispositivo({ clientId: fila.clientId, aparatoId: fila.aparatoId, bloqueadoAt }, motivo);
+    }
     return { ok: true };
 }

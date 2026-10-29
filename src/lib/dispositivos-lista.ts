@@ -85,21 +85,19 @@ export function fechaOpcional(crudo: string | null | undefined): Date | null {
     return Number.isFinite(t) ? new Date(t) : null;
 }
 
+/** Una fila de `dispositivo_app` con los datos del aparato (`dispositivo`) que le corresponden. */
 export interface FilaDeBD {
     id: string;
-    aparatoId: string;
     userId: string;
     clientId: string;
     sucursal: string | null;
-    plataforma: string | null;
     version: string | null;
-    equipo: string | null;
-    nombre: string | null;
     primeraVez: Date;
     vistoAt: Date;
     updatedAt: Date;
     bloqueadoAt: Date | null;
-    /** Todas las cuentas que han entrado en este aparato (la más reciente primero). */
+    dispositivo: { aparatoId: string; plataforma: string | null; equipo: string | null; nombre: string | null };
+    /** Todas las cuentas que han entrado en este aparato en esta aplicación (la más reciente primero). */
     personas?: { userId: string; primeraVez: Date; vistoAt: Date }[];
 }
 
@@ -117,19 +115,19 @@ export interface DispositivoDeServicio {
     ultimaVez: string;
     /** Cuándo cambió por última vez esta ficha (para `desde=`). */
     actualizado: string;
-    /** TODAS las cuentas que han entrado en este aparato (`userId` de arriba es solo la última), la más reciente primero. */
+    /** TODAS las cuentas que han entrado en este aparato en esta aplicación (`userId` de arriba es solo la última), la más reciente primero. */
     cuentas: { userId: string; primeraVez: string; ultimaVez: string }[];
 }
 
 export function aServicio(d: FilaDeBD): DispositivoDeServicio {
     return {
-        aparatoId: d.aparatoId,
+        aparatoId: d.dispositivo.aparatoId,
         userId: d.userId,
         app: d.clientId,
         sucursal: d.sucursal,
-        plataforma: d.plataforma,
+        plataforma: d.dispositivo.plataforma,
         version: d.version,
-        nombre: d.nombre ?? d.equipo,
+        nombre: d.dispositivo.nombre ?? d.dispositivo.equipo,
         estado: d.bloqueadoAt ? 'bloqueado' : 'activo',
         primeraVez: d.primeraVez.toISOString(),
         ultimaVez: d.vistoAt.toISOString(),

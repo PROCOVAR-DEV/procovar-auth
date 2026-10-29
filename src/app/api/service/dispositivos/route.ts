@@ -25,7 +25,7 @@
  *
  * POST { dispositivos: [{ aparatoId, userId, plataforma?, nombre?, version?, sucursal?, primeraVez?, ultimaVez? }] }
  *   IMPORTA aparatos que la aplicación ya tenía antes de existir este registro (máx. 100 por llamada). Es idempotente y NO
- *   pisa: si el aparato ya está, queda como está. El `aparatoId` puede ser cualquier UUID (el del CRM era v4: de antes del
+ *   pisa: si el aparato ya está EN ESA APLICACIÓN, queda como está; si ya estaba por otra aplicación, se le añade esta (es el mismo aparato). El `aparatoId` puede ser cualquier UUID (el del CRM era v4: de antes del
  *   cambio a v7); la `app` es la de la credencial. 200 { resultados: [{ aparatoId, resultado }] } con
  *   `resultado`: `creado` | `ya_existia` | `persona_inexistente` | `invalido`.
  *
@@ -87,11 +87,14 @@ export const GET = withServiceAuth(async (req: NextRequest, ctx: ServiceAuthCont
     }
 
     // Se pide UNA FILA DE MÁS: la forma barata de distinguir «caben justo» de «hay más».
-    const filas = await prisma.dispositivo.findMany({
+    const filas = await prisma.dispositivoApp.findMany({
         where: { AND: filtros },
         orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
         take: limite + 1,
-        include: { personas: { select: { userId: true, primeraVez: true, vistoAt: true }, orderBy: { vistoAt: 'desc' } } },
+        include: {
+            dispositivo: { select: { aparatoId: true, plataforma: true, equipo: true, nombre: true } },
+            personas: { select: { userId: true, primeraVez: true, vistoAt: true }, orderBy: { vistoAt: 'desc' } },
+        },
     });
     const truncado = filas.length > limite;
     const servidas = truncado ? filas.slice(0, limite) : filas;
@@ -151,8 +154,8 @@ export const POST = withServiceAuth(async (req: NextRequest, ctx: ServiceAuthCon
             resultados.push({ aparatoId, resultado: 'persona_inexistente' });
             continue;
         }
-        const existe = await prisma.dispositivo.findUnique({
-            where: { clientId_aparatoId: { clientId, aparatoId } },
+        const existe = await prisma.dispositivoApp.findFirst({
+            where: { clientId, dispositivo: { aparatoId } },
             select: { id: true },
         });
         if (existe) {
@@ -161,18 +164,32 @@ export const POST = withServiceAuth(async (req: NextRequest, ctx: ServiceAuthCon
         }
         const primera = d.data.primeraVez ? new Date(d.data.primeraVez) : new Date();
         const ultima = d.data.ultimaVez ? new Date(d.data.ultimaVez) : primera;
-        await prisma.dispositivo.create({
-            data: {
-                userId: d.data.userId,
-                clientId,
+        const sucursal = d.data.sucursal ? d.data.sucursal.trim().toUpperCase() : null;
+        const version = limpiarTexto(d.data.version, 32);
+        // Si el aparato ya estaba por OTRA aplicación (Reparto y CRM en el mismo teléfono) se reutiliza tal cual: es el mismo, no se duplica ni se pisa.
+        const aparato = await prisma.dispositivo.upsert({
+            where: { aparatoId },
+            create: {
                 aparatoId,
                 plataforma: limpiarTexto(d.data.plataforma, 40),
-                version: limpiarTexto(d.data.version, 32),
                 // El modelo del aparato es el nombre que traía la aplicación: es `equipo`, no el nombre que un administrador pone.
                 equipo: limpiarTexto(d.data.nombre, 80),
-                sucursal: d.data.sucursal ? d.data.sucursal.trim().toUpperCase() : null,
                 primeraVez: primera,
                 vistoAt: ultima,
+            },
+            update: {},
+            select: { id: true },
+        });
+        await prisma.dispositivoApp.create({
+            data: {
+                dispositivoId: aparato.id,
+                clientId,
+                userId: d.data.userId,
+                sucursal,
+                version,
+                primeraVez: primera,
+                vistoAt: ultima,
+                personas: { create: { userId: d.data.userId, sucursal, version, primeraVez: primera, vistoAt: ultima } },
             },
         });
         resultados.push({ aparatoId, resultado: 'creado' });

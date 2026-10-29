@@ -82,13 +82,28 @@ https://crm.procovar.cloud/dispositivos/{aparatoId}
 El botón «Ver actividad» de la pestaña abre esa dirección. La pantalla la protege la propia aplicación (con la
 sesión de Accesos, como todo). Reparto ya tiene su sincronización con esos datos y hará la suya como ejemplo.
 
+## Un mismo aparato, VARIAS aplicaciones (Jose, 29/10/2026)
+
+Un teléfono o un PC puede tener **Reparto y el CRM a la vez**. Es **UN aparato**, no una ficha por aplicación: Accesos guarda el aparato una
+sola vez (`dispositivo`, único por `aparatoId`: modelo, plataforma, nombre) y **cuelga de él cada aplicación en la que está**
+(`dispositivo_app`: versión, sucursal, sesión, estado de trabajo y bloqueo de ESA aplicación). La pantalla enseña el aparato en la pestaña de
+cada aplicación, con «También en CRM» si está en más de una.
+
+- **Para que dos aplicaciones sean el mismo aparato tienen que mandar el MISMO `X-Aparato-Id`.** Si cada APK genera el suyo, Accesos ve dos
+  aparatos distintos y no puede unirlos solo. (Cómo compartirlo es cosa de cada plataforma: en un mismo teléfono, una cabecera derivada
+  del dispositivo y no de la instalación; en Windows, un fichero común.)
+- **Bloquear y cerrar sesión son POR APLICACIÓN**: el CRM bloquea su APK en un teléfono sin dejar sin entrar a Reparto en ese mismo
+  teléfono. El **nombre** es del aparato: se lo ve igual en todas.
+- La lista de servicio (`GET /api/service/dispositivos`) devuelve **solo la fila de TU aplicación**: el CRM no ve que el aparato también
+  está en Reparto.
+
 ## Un mismo PC, VARIAS cuentas (Jose, 29/10/2026)
 
-Un aparato (la instalación, `X-Aparato-Id`) lo pueden usar varias personas, y hay que saber **cada cuenta que entró**, aunque sea el mismo
-ordenador. Por eso Accesos guarda dos cosas distintas: el **aparato** (uno por instalación) y, aparte, **una fila por cada cuenta que ha
-entrado en él** (`dispositivo_persona`: primera vez, última vez y versión con la que entró). `dispositivo.userId` es solo la **última**
-cuenta; el historial de quién lo usó está en las filas de cuentas. Se anota en cada renovación y entrada. Bloquear es del aparato (se
-bloquea el PC, para todas sus cuentas); la pantalla enseña todas las cuentas de cada aparato, la más reciente primero.
+Un aparato lo pueden usar varias personas, y hay que saber **cada cuenta que entró**, aunque sea el mismo ordenador. Por eso, además del
+aparato y de su paso por cada aplicación, Accesos guarda **una fila por cada cuenta que ha entrado en cada aplicación**
+(`dispositivo_persona`: primera vez, última vez y versión con la que entró). `dispositivo_app.userId` es solo la **última** cuenta; el
+historial de quién lo usó está en las filas de cuentas. Se anota en cada renovación y entrada. La pantalla enseña todas las cuentas de cada
+aparato, la más reciente primero.
 
 ## Cómo se ve en Accesos
 
@@ -160,9 +175,9 @@ que YA existe (importado con su id de antes) se sigue aceptando para actualizar 
 
 ## Qué guarda Accesos (para que quede dicho)
 
-Tabla `dispositivo`: persona, aplicación (`clientId`), `aparatoId`, plataforma, versión, equipo, sucursal, última
-IP, primera y última vez visto, y el estado informado (`ultimaDescarga`, `ultimaSubida`, `pendientes`,
-`rechazados`, `ultimoError`), más `revocadoAt`/`revocadoPor`. **No guarda** el contenido del trabajo, ni tokens, ni
+Tres tablas. `dispositivo`: `aparatoId` (único), plataforma, equipo, nombre, última IP, primera y última vez visto. `dispositivo_app`: el aparato
+en cada aplicación (`clientId`), con la última cuenta, sucursal, versión, el estado informado (`ultimaDescarga`, `ultimaSubida`,
+`pendientes`, `rechazados`, `ultimoError`) y `bloqueadoAt`/`bloqueadoPor`. `dispositivo_persona`: cada cuenta que entró en cada aplicación. **No guarda** el contenido del trabajo, ni tokens, ni
 datos de clientes. La IP y el `User-Agent` ya se guardan hoy en la sesión.
 
 ## Lo que NO hay que hacer

@@ -64,11 +64,13 @@ export const POST = withServiceAuth(
 
         try {
             // La aplicación va en la BÚSQUEDA: un aparato de otra aplicación NO se encuentra (404), no se rechaza con un 403 que lo delataría.
-            const fila = await prisma.dispositivo.findUnique({
-                where: { clientId_aparatoId: { clientId: elegida.app, aparatoId } },
-                select: { id: true, clientId: true, aparatoId: true, userId: true, familyId: true, bloqueadoAt: true },
+            const crudo = await prisma.dispositivoApp.findFirst({
+                where: { clientId: elegida.app, dispositivo: { aparatoId } },
+                select: { id: true, dispositivoId: true, clientId: true, userId: true, familyId: true, bloqueadoAt: true, dispositivo: { select: { aparatoId: true } } },
             });
-            if (!fila) return json({ error: 'not_found' }, 404);
+            if (!crudo) return json({ error: 'not_found' }, 404);
+            const { dispositivo, ...resto } = crudo;
+            const fila = { ...resto, aparatoId: dispositivo.aparatoId };
 
             const r = await aplicarOrden(fila, orden, { id: ctx.client.clientId, via: 'servicio' }, desdeDondePide(req.headers));
             if (!r.ok) return json({ error: r.error }, r.estado);

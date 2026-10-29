@@ -238,7 +238,7 @@ async function manejar(req: NextRequest) {
         }
 
         // UN APARATO BLOQUEADO POR UN ADMINISTRADOR no vuelve a entrar con ese `X-Aparato-Id` (`docs/dispositivos.md`).
-        if (await aparatoBloqueado(req.headers)) {
+        if (await aparatoBloqueado(req.headers, cliente)) {
             await descartarSesion(sesion.id);
             return NextResponse.json({ error: 'dispositivo_bloqueado' }, { status: 403 });
         }

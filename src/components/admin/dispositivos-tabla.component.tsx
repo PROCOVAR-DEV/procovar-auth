@@ -196,6 +196,11 @@ export function DispositivosTabla({
                                                 <div className="text-xs text-pv-tinta-suave">
                                                     {[f.plataforma, f.version ? `versión ${f.version}` : null].filter(Boolean).join(" · ") || "Sin identificar"}
                                                 </div>
+                                                {f.tambienEn.length > 0 && (
+                                                    <div className="text-xs text-pv-tinta-suave" title="Es el mismo aparato: no está duplicado.">
+                                                        También en {f.tambienEn.join(", ")}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </td>
@@ -224,7 +229,7 @@ export function DispositivosTabla({
                                             <Button size="sm" variant="light" isDisabled={ocupado === f.id} onPress={() => { setNombre(f.nombrePuesto ?? ""); setEditando(f.id); }} startContent={<Icon icon="lucide:pencil" className="size-4" aria-hidden />}>
                                                 Nombre
                                             </Button>
-                                            <Button size="sm" variant="light" isDisabled={ocupado === f.id} onPress={() => hacer(f, { accion: "cerrar" }, "¿Cerrar la sesión de este aparato? Podrá volver a entrar.")} startContent={<Icon icon="lucide:log-out" className="size-4" aria-hidden />}>
+                                            <Button size="sm" variant="light" isDisabled={ocupado === f.id} onPress={() => hacer(f, { accion: "cerrar" }, "¿Cerrar la sesión de este aparato en esta aplicación? Podrá volver a entrar.")} startContent={<Icon icon="lucide:log-out" className="size-4" aria-hidden />}>
                                                 Cerrar sesión
                                             </Button>
                                             {f.bloqueado ? (
@@ -232,7 +237,7 @@ export function DispositivosTabla({
                                                     Desbloquear
                                                 </Button>
                                             ) : (
-                                                <Button size="sm" color="danger" variant="light" isDisabled={ocupado === f.id} onPress={() => hacer(f, { accion: "bloquear" }, "¿Bloquear este aparato? Se le cierra la sesión y no podrá volver a entrar hasta que lo desbloquees.")} startContent={<Icon icon="lucide:ban" className="size-4" aria-hidden />}>
+                                                <Button size="sm" color="danger" variant="light" isDisabled={ocupado === f.id} onPress={() => hacer(f, { accion: "bloquear" }, "¿Bloquear este aparato en esta aplicación? Se le cierra la sesión y no podrá volver a entrar en ella hasta que lo desbloquees (en las demás aplicaciones sigue como estaba).")} startContent={<Icon icon="lucide:ban" className="size-4" aria-hidden />}>
                                                     Bloquear
                                                 </Button>
                                             )}

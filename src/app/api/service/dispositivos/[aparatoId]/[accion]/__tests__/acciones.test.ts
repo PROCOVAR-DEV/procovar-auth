@@ -5,7 +5,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const db = vi.hoisted(() => ({ dispositivo: { findUnique: vi.fn(), update: vi.fn() } }))
+const db = vi.hoisted(() => ({
+    dispositivo: { update: vi.fn() },
+    dispositivoApp: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+}))
 const familias = vi.hoisted(() => ({ cerrarFamilia: vi.fn(), desdeDondePide: vi.fn(() => ({ ip: '10.0.0.5', userAgent: 'crm-api' })) }))
 const avisos = vi.hoisted(() => ({ avisarDeDispositivo: vi.fn() }))
 const auditoria = vi.hoisted(() => ({ audit: vi.fn() }))
@@ -21,7 +24,8 @@ import { POST } from '../route'
 const ID = '0192f3c4-8a3b-7d0e-9d62-6a1f3b6f2c10'
 const ctxCon = (...scopes: string[]) => ({ client: { clientId: 'crm', keyVersion: 1, scopes, name: 'CRM' } })
 const CRM = ctxCon('dispositivos:crm-apk')
-const FILA = { id: 'd1', clientId: 'crm-apk', aparatoId: ID, userId: 'u1', familyId: 'fam1', bloqueadoAt: null as Date | null }
+/** El aparato EN LA APLICACIÓN del CRM (`dispositivo_app`), con el aparato dentro. */
+const FILA = { id: 'd1', dispositivoId: 'dis1', clientId: 'crm-apk', userId: 'u1', familyId: 'fam1', bloqueadoAt: null as Date | null, dispositivo: { aparatoId: ID } }
 
 const llamar = (accion: string, cuerpo?: unknown, ctx = CRM, query = '', id = ID) =>
     (POST as unknown as (r: Request, c: unknown) => Promise<Response>)(
@@ -32,18 +36,21 @@ const llamar = (accion: string, cuerpo?: unknown, ctx = CRM, query = '', id = ID
 beforeEach(() => {
     vi.resetAllMocks()
     familias.desdeDondePide.mockReturnValue({ ip: '10.0.0.5', userAgent: 'crm-api' })
-    db.dispositivo.findUnique.mockResolvedValue(FILA)
+    db.dispositivoApp.findFirst.mockResolvedValue(FILA)
     db.dispositivo.update.mockResolvedValue({})
+    db.dispositivoApp.update.mockResolvedValue({})
+    db.dispositivoApp.updateMany.mockResolvedValue({ count: 1 })
+    db.dispositivoApp.findMany.mockResolvedValue([{ clientId: 'crm-apk', bloqueadoAt: null }])
     familias.cerrarFamilia.mockResolvedValue(undefined)
     avisos.avisarDeDispositivo.mockResolvedValue(true)
 })
 
 describe('el alcance: SOLO los aparatos de su aplicación', () => {
     it('la búsqueda lleva la app de la CREDENCIAL: un aparato de otra app no se encuentra (404)', async () => {
-        db.dispositivo.findUnique.mockResolvedValue(null)
+        db.dispositivoApp.findFirst.mockResolvedValue(null)
         expect((await llamar('bloquear')).status).toBe(404)
-        expect(db.dispositivo.findUnique.mock.calls[0][0].where).toEqual({ clientId_aparatoId: { clientId: 'crm-apk', aparatoId: ID } })
-        expect(db.dispositivo.update).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.findFirst.mock.calls[0][0].where).toMatchObject({ clientId: 'crm-apk', dispositivo: { aparatoId: ID } })
+        expect(db.dispositivoApp.update).not.toHaveBeenCalled()
         expect(avisos.avisarDeDispositivo).not.toHaveBeenCalled()
     })
     it('sin el scope de dispositivos, o con `?app=` ajeno: 403 y no toca nada', async () => {
@@ -52,12 +59,12 @@ describe('el alcance: SOLO los aparatos de su aplicación', () => {
         const ajena = await llamar('bloquear', undefined, CRM, '?app=reparto')
         expect(ajena.status).toBe(403)
         expect((await ajena.json()).error).toBe('app_no_permitida')
-        expect(db.dispositivo.findUnique).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.findFirst).not.toHaveBeenCalled()
     })
     it('una acción que no existe, o un id que no es un UUID: 404', async () => {
         expect((await llamar('borrar')).status).toBe(404)
         expect((await llamar('bloquear', undefined, CRM, '', 'no-es-uuid')).status).toBe(404)
-        expect(db.dispositivo.findUnique).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.findFirst).not.toHaveBeenCalled()
     })
 })
 
@@ -65,7 +72,7 @@ describe('las acciones hacen lo mismo que el panel', () => {
     it('bloquear: marca el bloqueo (con el servicio que lo pidió), cierra la cadena, audita y avisa por el canal de su app', async () => {
         const r = await llamar('bloquear')
         expect(await r.json()).toEqual({ ok: true, estado: 'bloqueado' })
-        expect(db.dispositivo.update.mock.calls[0][0].data).toMatchObject({ bloqueadoPor: 'crm' })
+        expect(db.dispositivoApp.update.mock.calls[0][0].data).toMatchObject({ bloqueadoPor: 'crm' })
         expect(familias.cerrarFamilia).toHaveBeenCalledWith('fam1')
         expect(auditoria.audit).toHaveBeenCalledWith(expect.objectContaining({
             action: 'dispositivo.bloquear', clientId: 'crm-apk', resource: ID, userId: undefined,
@@ -78,9 +85,9 @@ describe('las acciones hacen lo mismo que el panel', () => {
     })
 
     it('desbloquear: lo deja activo y avisa con motivo `desbloqueado`', async () => {
-        db.dispositivo.findUnique.mockResolvedValue({ ...FILA, bloqueadoAt: new Date() })
+        db.dispositivoApp.findFirst.mockResolvedValue({ ...FILA, bloqueadoAt: new Date() })
         expect(await (await llamar('desbloquear')).json()).toEqual({ ok: true, estado: 'activo' })
-        expect(db.dispositivo.update.mock.calls[0][0].data).toEqual({ bloqueadoAt: null, bloqueadoPor: null })
+        expect(db.dispositivoApp.update.mock.calls[0][0].data).toEqual({ bloqueadoAt: null, bloqueadoPor: null })
         expect(avisos.avisarDeDispositivo).toHaveBeenCalledWith(expect.objectContaining({ bloqueadoAt: null }), 'desbloqueado')
         expect(familias.cerrarFamilia).not.toHaveBeenCalled()
     })
@@ -88,7 +95,7 @@ describe('las acciones hacen lo mismo que el panel', () => {
     it('nombre: se limpia, vacío o null lo quita, y avisa `renombrado`; no cambia el estado de bloqueo', async () => {
         const r = await llamar('nombre', { nombre: '  Samsung   de\nPalma ' })
         expect(await r.json()).toEqual({ ok: true, estado: 'activo' })
-        expect(db.dispositivo.update.mock.calls[0][0].data).toEqual({ nombre: 'Samsung de Palma' })
+        expect(db.dispositivo.update.mock.calls[0][0]).toEqual({ where: { id: 'dis1' }, data: { nombre: 'Samsung de Palma' } })
         await llamar('nombre', { nombre: null })
         expect(db.dispositivo.update.mock.calls[1][0].data).toEqual({ nombre: null })
         expect(avisos.avisarDeDispositivo).toHaveBeenCalledWith(expect.anything(), 'renombrado')
@@ -99,6 +106,6 @@ describe('las acciones hacen lo mismo que el panel', () => {
         expect((await llamar('nombre', { nombre: 5 })).status).toBe(400)
         avisos.avisarDeDispositivo.mockResolvedValue(false)
         expect((await llamar('bloquear')).status).toBe(200)
-        expect(db.dispositivo.update).toHaveBeenCalled()
+        expect(db.dispositivoApp.update).toHaveBeenCalled()
     })
 })

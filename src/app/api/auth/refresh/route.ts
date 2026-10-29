@@ -57,7 +57,7 @@ import { logger } from '@/lib/logger';
 import { CLIENTE_POR_DEFECTO, desdeDondePide, renovar } from '@/lib/apk-tokens';
 import { ComprobacionNoDisponible, CUERPO_NO_DISPONIBLE, CUERPO_SIN_PERMISO } from '@/lib/puerta-de-entrada';
 import { conCors, preflight } from '@/lib/cors-apk';
-import { aparatoBloqueado, registrarDelPar } from '@/lib/dispositivos';
+import { aparatoBloqueadoPorRefresh, registrarDelPar } from '@/lib/dispositivos';
 
 const BodySchema = z
     .object({
@@ -103,7 +103,7 @@ async function manejar(req: NextRequest) {
     try {
         // UN APARATO BLOQUEADO POR UN ADMINISTRADOR (`docs/dispositivos.md`): el 401 de siempre, ANTES de gastar el
         // refresh. Falla abierto: si no se puede mirar, no se bloquea a nadie por una caída.
-        if (await aparatoBloqueado(req.headers)) return NextResponse.json({ error: 'invalid_refresh' }, { status: 401 });
+        if (await aparatoBloqueadoPorRefresh((parsed.data.refresh_token ?? parsed.data.refresh)!, req.headers, CLIENTE_POR_DEFECTO)) return NextResponse.json({ error: 'invalid_refresh' }, { status: 401 });
 
         const salida = await renovar((parsed.data.refresh_token ?? parsed.data.refresh)!, aparato);
         if (!salida.ok) {

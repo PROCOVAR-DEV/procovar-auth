@@ -114,27 +114,31 @@ export async function registrarDispositivo(d: DatosDeRegistro): Promise<boolean>
     try {
         const { version, plataforma } = partesDelAgente(d.userAgent);
         const ahora = new Date();
-        const comunes = {
-            plataforma,
-            version,
-            sucursal: d.sucursal,
-            ipUltima: d.ip,
-            userAgent: limpiarTexto(d.userAgent, MAX_UA),
-            vistoAt: ahora,
-            ...(d.familyId ? { familyId: d.familyId } : {}),
-        };
-        const fila = await prisma.dispositivo.upsert({
-            where: { clientId_aparatoId: { clientId: d.clientId, aparatoId: d.aparatoId } },
-            create: { userId: d.userId, clientId: d.clientId, aparatoId: d.aparatoId, equipo: d.equipo, primeraVez: ahora, ...comunes },
-            // El nombre que le puso el aparato solo se pisa si trae uno; el que puso un administrador (`nombre`) no se toca.
-            // `userId` es la ÚLTIMA cuenta que entró; TODAS quedan anotadas en `DispositivoPersona` (abajo).
-            update: { userId: d.userId, ...(d.equipo ? { equipo: d.equipo } : {}), ...comunes },
+        // EL APARATO (uno solo, esté en las aplicaciones que esté), la APLICACIÓN dentro de él y la CUENTA dentro de ella.
+        // El nombre que le puso el aparato solo se pisa si trae uno; el que puso un administrador (`nombre`) no se toca.
+        const aparato = await prisma.dispositivo.upsert({
+            where: { aparatoId: d.aparatoId },
+            create: { aparatoId: d.aparatoId, plataforma, equipo: d.equipo, ipUltima: d.ip, userAgent: limpiarTexto(d.userAgent, MAX_UA), primeraVez: ahora, vistoAt: ahora },
+            update: {
+                ...(plataforma ? { plataforma } : {}),
+                ...(d.equipo ? { equipo: d.equipo } : {}),
+                ipUltima: d.ip,
+                userAgent: limpiarTexto(d.userAgent, MAX_UA),
+                vistoAt: ahora,
+            },
+            select: { id: true },
+        });
+        // `userId` es la ÚLTIMA cuenta que entró en esta aplicación; TODAS quedan anotadas en `DispositivoPersona` (abajo).
+        const enApp = await prisma.dispositivoApp.upsert({
+            where: { dispositivoId_clientId: { dispositivoId: aparato.id, clientId: d.clientId } },
+            create: { dispositivoId: aparato.id, clientId: d.clientId, userId: d.userId, sucursal: d.sucursal, version, primeraVez: ahora, vistoAt: ahora, ...(d.familyId ? { familyId: d.familyId } : {}) },
+            update: { userId: d.userId, sucursal: d.sucursal, version, vistoAt: ahora, ...(d.familyId ? { familyId: d.familyId } : {}) },
             select: { id: true },
         });
         // QUÉ CUENTA entró en este aparato: un mismo PC lo usan varias personas y todas tienen que quedar (Jose, 29/10/2026).
         await prisma.dispositivoPersona.upsert({
-            where: { dispositivoId_userId: { dispositivoId: fila.id, userId: d.userId } },
-            create: { dispositivoId: fila.id, userId: d.userId, sucursal: d.sucursal, version, primeraVez: ahora, vistoAt: ahora },
+            where: { dispositivoAppId_userId: { dispositivoAppId: enApp.id, userId: d.userId } },
+            create: { dispositivoAppId: enApp.id, userId: d.userId, sucursal: d.sucursal, version, primeraVez: ahora, vistoAt: ahora },
             update: { sucursal: d.sucursal, version, vistoAt: ahora },
         });
         return true;
@@ -150,8 +154,8 @@ export async function registrarDispositivo(d: DatosDeRegistro): Promise<boolean>
 /** ¿Un administrador bloqueó este aparato? Falla ABIERTO: si no se puede mirar, no se bloquea a nadie por una caída. */
 export async function dispositivoBloqueado(clientId: string, aparatoId: string): Promise<boolean> {
     try {
-        const fila = await prisma.dispositivo.findUnique({
-            where: { clientId_aparatoId: { clientId, aparatoId } },
+        const fila = await prisma.dispositivoApp.findFirst({
+            where: { clientId, dispositivo: { aparatoId } },
             select: { bloqueadoAt: true },
         });
         return !!fila?.bloqueadoAt;
@@ -162,18 +166,38 @@ export async function dispositivoBloqueado(clientId: string, aparatoId: string):
 }
 
 /**
- * ¿Un administrador bloqueó este `X-Aparato-Id`, sea cual sea la aplicación? Se mira ANTES de gastar un refresh: un
- * aparato bloqueado recibe el 401 de siempre («sesión muerta») y la app limpia y vuelve a la puerta. Falla ABIERTO.
+ * ¿Un administrador bloqueó este `X-Aparato-Id` EN ESTA APLICACIÓN? Se mira ANTES de gastar un refresh: un aparato bloqueado
+ * recibe el 401 de siempre («sesión muerta») y la app limpia y vuelve a la puerta. El bloqueo es POR APLICACIÓN (un mismo
+ * teléfono puede tener Reparto y CRM): el del CRM no deja sin entrar a Reparto. Falla ABIERTO.
  */
-export async function aparatoBloqueado(cabeceras: Headers): Promise<boolean> {
+export async function aparatoBloqueado(cabeceras: Headers, clientId: string | null): Promise<boolean> {
     const { aparatoId } = leerCabecerasDeAparato(cabeceras);
-    if (!aparatoId) return false;
+    if (!aparatoId || !clientId) return false;
     try {
         const fila = await conTope(
-            prisma.dispositivo.findFirst({ where: { aparatoId, bloqueadoAt: { not: null } }, select: { id: true } }),
+            prisma.dispositivoApp.findFirst({
+                where: { clientId, bloqueadoAt: { not: null }, dispositivo: { aparatoId } },
+                select: { id: true },
+            }),
             1500
         );
         return !!fila;
+    } catch (e) {
+        logger.warn('[dispositivos] no se pudo comprobar el bloqueo; se deja pasar', { error: (e as Error).message });
+        return false;
+    }
+}
+
+/** Igual, pero la aplicación sale del refresh que llega (`/refresh` no la dice). Sin `X-Aparato-Id` no gasta ni una consulta. */
+export async function aparatoBloqueadoPorRefresh(refresh: string, cabeceras: Headers, clientePorDefecto: string): Promise<boolean> {
+    if (!leerCabecerasDeAparato(cabeceras).aparatoId) return false;
+    try {
+        const fila = await conTope(
+            prisma.refreshToken.findUnique({ where: { tokenHash: _hashDe(refresh) }, select: { clientId: true } }),
+            1500
+        );
+        if (!fila) return false;
+        return aparatoBloqueado(cabeceras, fila.clientId ?? clientePorDefecto);
     } catch (e) {
         logger.warn('[dispositivos] no se pudo comprobar el bloqueo; se deja pasar', { error: (e as Error).message });
         return false;
@@ -199,8 +223,8 @@ export async function registrarDelPar(
             (async () => {
                 // Un id que no es v7 NO crea nada: solo vale si el aparato ya estaba (importado con su id de antes).
                 if (!esV7) {
-                    const existe = await prisma.dispositivo.findUnique({
-                        where: { clientId_aparatoId: { clientId: t.azp, aparatoId } },
+                    const existe = await prisma.dispositivoApp.findFirst({
+                        where: { clientId: t.azp, dispositivo: { aparatoId } },
                         select: { id: true },
                     });
                     if (!existe) return;

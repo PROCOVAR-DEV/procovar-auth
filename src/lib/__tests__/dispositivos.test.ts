@@ -8,7 +8,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const db = vi.hoisted(() => ({
-    dispositivo: { upsert: vi.fn(), findUnique: vi.fn() },
+    dispositivo: { upsert: vi.fn() },
+    dispositivoApp: { upsert: vi.fn(), findFirst: vi.fn() },
     dispositivoPersona: { upsert: vi.fn() },
 }));
 vi.mock('@/lib/prisma', () => ({ prisma: db }));
@@ -94,35 +95,58 @@ describe('registrarDispositivo: nunca rompe la renovación', () => {
         ip: '1.2.3.4', userAgent: 'ProcovarReparto/1.0.47 (Windows)', familyId: 'fam1',
     };
 
-    it('crea o actualiza con la versión y la plataforma de AHORA', async () => {
+    const falsos = () => {
         db.dispositivo.upsert.mockResolvedValue({ id: 'd1' });
+        db.dispositivoApp.upsert.mockResolvedValue({ id: 'da1' });
         db.dispositivoPersona.upsert.mockResolvedValue({});
+    };
+
+    it('crea o actualiza con la versión y la plataforma de AHORA: el aparato por un lado, la aplicación por otro', async () => {
+        falsos();
         expect(await registrarDispositivo(datos)).toBe(true);
-        const arg = db.dispositivo.upsert.mock.calls[0][0];
-        expect(arg.where).toEqual({ clientId_aparatoId: { clientId: 'delivery-apk', aparatoId: ID } });
-        expect(arg.update).toMatchObject({ version: '1.0.47', plataforma: 'Windows', userId: 'u1', equipo: 'PC de Maikel', familyId: 'fam1' });
-        expect(arg.create).toMatchObject({ userId: 'u1', aparatoId: ID, version: '1.0.47' });
+        const ap = db.dispositivo.upsert.mock.calls[0][0];
+        expect(ap.where).toEqual({ aparatoId: ID });
+        expect(ap.update).toMatchObject({ plataforma: 'Windows', equipo: 'PC de Maikel' });
+        expect(ap.create).toMatchObject({ aparatoId: ID, plataforma: 'Windows' });
+        const app = db.dispositivoApp.upsert.mock.calls[0][0];
+        expect(app.where).toEqual({ dispositivoId_clientId: { dispositivoId: 'd1', clientId: 'delivery-apk' } });
+        expect(app.update).toMatchObject({ version: '1.0.47', userId: 'u1', sucursal: 'STG', familyId: 'fam1' });
+        expect(app.create).toMatchObject({ dispositivoId: 'd1', clientId: 'delivery-apk', userId: 'u1', version: '1.0.47' });
+    });
+
+    it('UN MISMO APARATO EN DOS APLICACIONES (Reparto y CRM): un solo `dispositivo`, dos filas de aplicación, sin duplicar', async () => {
+        falsos();
+        await registrarDispositivo(datos);
+        await registrarDispositivo({ ...datos, clientId: 'crm-apk', userAgent: 'ProcovarCRM/2.3.1 (Windows)', familyId: 'fam2' });
+        const [a, b] = db.dispositivo.upsert.mock.calls.map((c) => c[0]);
+        // la identidad es la misma: la clave es SOLO el aparato, no la aplicación
+        expect(a.where).toEqual({ aparatoId: ID });
+        expect(b.where).toEqual({ aparatoId: ID });
+        const [x, y] = db.dispositivoApp.upsert.mock.calls.map((c) => c[0]);
+        expect(x.where.dispositivoId_clientId).toEqual({ dispositivoId: 'd1', clientId: 'delivery-apk' });
+        expect(y.where.dispositivoId_clientId).toEqual({ dispositivoId: 'd1', clientId: 'crm-apk' });
+        // cada aplicación lleva su versión y su cadena de refresh
+        expect(x.update).toMatchObject({ version: '1.0.47', familyId: 'fam1' });
+        expect(y.update).toMatchObject({ version: '2.3.1', familyId: 'fam2' });
     });
 
     it('QUÉ CUENTA entró: cada cuenta que entra en el mismo aparato queda anotada (un PC lo usan varias personas)', async () => {
-        db.dispositivo.upsert.mockResolvedValue({ id: 'd1' });
-        db.dispositivoPersona.upsert.mockResolvedValue({});
-        await registrarDispositivo(datos)
-        await registrarDispositivo({ ...datos, userId: 'u2', sucursal: 'HAB', userAgent: 'ProcovarReparto/1.0.45 (Windows)' })
-        const [a, b] = db.dispositivoPersona.upsert.mock.calls.map((c) => c[0])
-        expect(a.where).toEqual({ dispositivoId_userId: { dispositivoId: 'd1', userId: 'u1' } })
-        expect(b.where).toEqual({ dispositivoId_userId: { dispositivoId: 'd1', userId: 'u2' } })
-        expect(a.create).toMatchObject({ dispositivoId: 'd1', userId: 'u1', sucursal: 'STG', version: '1.0.47' })
-        expect(b.create).toMatchObject({ userId: 'u2', sucursal: 'HAB', version: '1.0.45' })
-        // La segunda cuenta NO borra a la primera: son dos filas distintas (la clave es aparato + persona).
-        expect(a.where.dispositivoId_userId.userId).not.toBe(b.where.dispositivoId_userId.userId)
-        // `userId` del aparato es solo la última; el historial está en las filas de arriba.
-        expect(db.dispositivo.upsert.mock.calls[1][0].update.userId).toBe('u2')
-    })
+        falsos();
+        await registrarDispositivo(datos);
+        await registrarDispositivo({ ...datos, userId: 'u2', sucursal: 'HAB', userAgent: 'ProcovarReparto/1.0.45 (Windows)' });
+        const [a, b] = db.dispositivoPersona.upsert.mock.calls.map((c) => c[0]);
+        expect(a.where).toEqual({ dispositivoAppId_userId: { dispositivoAppId: 'da1', userId: 'u1' } });
+        expect(b.where).toEqual({ dispositivoAppId_userId: { dispositivoAppId: 'da1', userId: 'u2' } });
+        expect(a.create).toMatchObject({ dispositivoAppId: 'da1', userId: 'u1', sucursal: 'STG', version: '1.0.47' });
+        expect(b.create).toMatchObject({ userId: 'u2', sucursal: 'HAB', version: '1.0.45' });
+        // La segunda cuenta NO borra a la primera: son dos filas distintas (la clave es aplicación + persona).
+        expect(a.where.dispositivoAppId_userId.userId).not.toBe(b.where.dispositivoAppId_userId.userId);
+        // `userId` de la aplicación es solo la última; el historial está en las filas de arriba.
+        expect(db.dispositivoApp.upsert.mock.calls[1][0].update.userId).toBe('u2');
+    });
 
     it('sin nombre de equipo NO pisa el que ya tenía, y el nombre de un administrador nunca se toca', async () => {
-        db.dispositivo.upsert.mockResolvedValue({ id: 'd1' });
-        db.dispositivoPersona.upsert.mockResolvedValue({});
+        falsos();
         await registrarDispositivo({ ...datos, equipo: null });
         const arg = db.dispositivo.upsert.mock.calls[0][0];
         expect(arg.update).not.toHaveProperty('equipo');
@@ -138,15 +162,16 @@ describe('registrarDispositivo: nunca rompe la renovación', () => {
 describe('dispositivoBloqueado: falla ABIERTO', () => {
     beforeEach(() => vi.clearAllMocks());
     it('bloqueado solo si un administrador lo bloqueó', async () => {
-        db.dispositivo.findUnique.mockResolvedValue({ bloqueadoAt: new Date() });
+        db.dispositivoApp.findFirst.mockResolvedValue({ bloqueadoAt: new Date() });
         expect(await dispositivoBloqueado('delivery-apk', ID)).toBe(true);
-        db.dispositivo.findUnique.mockResolvedValue({ bloqueadoAt: null });
+        expect(db.dispositivoApp.findFirst.mock.calls[0][0].where).toEqual({ clientId: 'delivery-apk', dispositivo: { aparatoId: ID } });
+        db.dispositivoApp.findFirst.mockResolvedValue({ bloqueadoAt: null });
         expect(await dispositivoBloqueado('delivery-apk', ID)).toBe(false);
-        db.dispositivo.findUnique.mockResolvedValue(null);
+        db.dispositivoApp.findFirst.mockResolvedValue(null);
         expect(await dispositivoBloqueado('delivery-apk', ID)).toBe(false);
     });
     it('si no se puede mirar, NO se bloquea a nadie por una caída', async () => {
-        db.dispositivo.findUnique.mockRejectedValue(new Error('base caída'));
+        db.dispositivoApp.findFirst.mockRejectedValue(new Error('base caída'));
         expect(await dispositivoBloqueado('delivery-apk', ID)).toBe(false);
     });
 });

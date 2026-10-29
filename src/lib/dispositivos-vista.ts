@@ -35,6 +35,7 @@ export function urlDeActividad(plantilla: string | null | undefined, aparatoId: 
     }
 }
 
+/** Una fila de `dispositivo_app` con los datos del aparato, aplanada para pintarla. `id` es el de la fila en la aplicación. */
 export interface DispositivoDeBD {
     id: string;
     aparatoId: string;
@@ -45,6 +46,8 @@ export interface DispositivoDeBD {
     version: string | null;
     equipo: string | null;
     nombre: string | null;
+    /** Las OTRAS aplicaciones en las que está este mismo aparato (`clientId`). */
+    tambienEn?: string[];
     vistoAt: Date;
     primeraVez: Date;
     ultimaDescarga: Date | null;
@@ -87,6 +90,8 @@ export interface FilaDeDispositivo {
     rechazados: number | null;
     ultimoError: string | null;
     bloqueado: boolean;
+    /** Nombres de las otras aplicaciones en las que está este MISMO aparato («CRM»): es uno solo, no una ficha por aplicación. */
+    tambienEn: string[];
     actividadUrl: string | null;
 }
 
@@ -121,6 +126,7 @@ export function aFila(
         rechazados: d.rechazados,
         ultimoError: d.ultimoError,
         bloqueado: !!d.bloqueadoAt,
+        tambienEn: [...new Set(d.tambienEn ?? [])].sort().map(nombreDeApp),
         actividadUrl: urlDeActividad(plantillaDeActividad, d.aparatoId),
     };
 }

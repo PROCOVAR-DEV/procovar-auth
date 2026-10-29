@@ -8,7 +8,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const db = vi.hoisted(() => ({
-    dispositivo: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
+    dispositivo: { upsert: vi.fn() },
+    dispositivoApp: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
     user: { findUnique: vi.fn() },
 }))
 vi.mock('@/lib/prisma', () => ({ prisma: db }))
@@ -31,11 +32,14 @@ const post = (cuerpo: unknown, ctx = CRM, query = '') =>
         ctx,
     )
 
-const fila = (n: number, extra: Record<string, unknown> = {}) => ({
-    id: `d${n}`, aparatoId: `0192f3c4-8a3b-7d0e-9d62-6a1f3b6f2c${String(n).padStart(2, '0')}`, userId: 'u1', clientId: 'crm-apk',
-    sucursal: 'STG', plataforma: 'Android', version: '2.3.1', equipo: 'Samsung A14', nombre: null,
+/** Una fila de `dispositivo_app` con su aparato dentro (`dispositivo`): el nombre y el modelo son del APARATO, la versión de la aplicación. */
+const fila = (n: number, extra: Record<string, unknown> = {}, aparato: Record<string, unknown> = {}) => ({
+    id: `d${n}`, userId: 'u1', clientId: 'crm-apk',
+    sucursal: 'STG', version: '2.3.1',
     primeraVez: new Date('2026-10-20T10:00:00Z'), vistoAt: new Date('2026-10-29T12:00:00Z'),
-    updatedAt: new Date(`2026-10-29T12:00:0${n}Z`), bloqueadoAt: null, ...extra,
+    updatedAt: new Date(`2026-10-29T12:00:0${n}Z`), bloqueadoAt: null,
+    dispositivo: { aparatoId: `0192f3c4-8a3b-7d0e-9d62-6a1f3b6f2c${String(n).padStart(2, '0')}`, plataforma: 'Android', equipo: 'Samsung A14', nombre: null, ...aparato },
+    ...extra,
 })
 
 beforeEach(() => vi.resetAllMocks())
@@ -54,28 +58,28 @@ describe('QUÉ APLICACIÓN VE QUIÉN: sale de la credencial, no de lo que mande'
             expect(r.status).toBe(403)
             expect((await r.json()).error).toBe('app_no_permitida')
         }
-        expect(db.dispositivo.findMany).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.findMany).not.toHaveBeenCalled()
     })
 
     it('sin el scope de dispositivos (o con solo el comodín) es 403', async () => {
         expect((await get('?app=crm', ctxCon('callback:create'))).status).toBe(403)
         expect((await get('?app=crm', ctxCon('*'))).status).toBe(403)
         expect((await get('', ctxCon())).status).toBe(403)
-        expect(db.dispositivo.findMany).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.findMany).not.toHaveBeenCalled()
     })
 
     it('sin `?app=` y con UNA sola app permitida, es esa; con varias, hay que decirla', async () => {
-        db.dispositivo.findMany.mockResolvedValue([])
+        db.dispositivoApp.findMany.mockResolvedValue([])
         expect((await get('')).status).toBe(200)
-        expect(db.dispositivo.findMany.mock.calls[0][0].where.AND).toContainEqual({ clientId: 'crm-apk' })
+        expect(db.dispositivoApp.findMany.mock.calls[0][0].where.AND).toContainEqual({ clientId: 'crm-apk' })
         expect((await get('', ctxCon('dispositivos:crm-apk', 'dispositivos:delivery-apk'))).status).toBe(400)
     })
 
     it('el CRM nunca recibe una fila de otra app: el filtro por app va SIEMPRE', async () => {
-        db.dispositivo.findMany.mockResolvedValue([])
+        db.dispositivoApp.findMany.mockResolvedValue([])
         await get('?app=crm')
         await get('?app=crm-apk')
-        for (const llamada of db.dispositivo.findMany.mock.calls) {
+        for (const llamada of db.dispositivoApp.findMany.mock.calls) {
             expect(llamada[0].where.AND).toContainEqual({ clientId: 'crm-apk' })
         }
     })
@@ -88,10 +92,10 @@ describe('QUÉ APLICACIÓN VE QUIÉN: sale de la credencial, no de lo que mande'
 
 describe('la respuesta', () => {
     it('da el estado, el nombre (el de un administrador manda sobre el del aparato) y filtra por sucursal', async () => {
-        db.dispositivo.findMany.mockResolvedValue([fila(1), fila(2, { bloqueadoAt: new Date(), nombre: 'PC de Palma' })])
+        db.dispositivoApp.findMany.mockResolvedValue([fila(1), fila(2, { bloqueadoAt: new Date() }, { nombre: 'PC de Palma' })])
         const r = await get('?sucursal=stg')
         const cuerpo = await r.json()
-        expect(db.dispositivo.findMany.mock.calls[0][0].where.AND).toContainEqual({ sucursal: 'STG' })
+        expect(db.dispositivoApp.findMany.mock.calls[0][0].where.AND).toContainEqual({ sucursal: 'STG' })
         expect(cuerpo.dispositivos[0]).toMatchObject({ app: 'crm-apk', estado: 'activo', nombre: 'Samsung A14', sucursal: 'STG', version: '2.3.1' })
         expect(cuerpo.dispositivos[1]).toMatchObject({ estado: 'bloqueado', nombre: 'PC de Palma' })
         expect(cuerpo.truncado).toBe(false)
@@ -99,7 +103,7 @@ describe('la respuesta', () => {
     })
 
     it('lleva TODAS las cuentas que han entrado en cada aparato (un PC lo usan varias personas), y las pide a la base', async () => {
-        db.dispositivo.findMany.mockResolvedValue([
+        db.dispositivoApp.findMany.mockResolvedValue([
             fila(1, {
                 personas: [
                     { userId: 'u2', primeraVez: new Date('2026-10-28T21:15:00Z'), vistoAt: new Date('2026-10-29T12:00:00Z') },
@@ -108,7 +112,7 @@ describe('la respuesta', () => {
             }),
         ])
         const cuerpo = await (await get('')).json()
-        expect(db.dispositivo.findMany.mock.calls[0][0].include.personas.orderBy).toEqual({ vistoAt: 'desc' })
+        expect(db.dispositivoApp.findMany.mock.calls[0][0].include.personas.orderBy).toEqual({ vistoAt: 'desc' })
         expect(cuerpo.dispositivos[0].cuentas).toEqual([
             { userId: 'u2', primeraVez: '2026-10-28T21:15:00.000Z', ultimaVez: '2026-10-29T12:00:00.000Z' },
             { userId: 'u1', primeraVez: '2026-10-27T19:11:00.000Z', ultimaVez: '2026-10-28T21:40:00.000Z' },
@@ -117,31 +121,31 @@ describe('la respuesta', () => {
     })
 
     it('`desde` filtra por la última modificación; uno que no es una fecha es 400', async () => {
-        db.dispositivo.findMany.mockResolvedValue([])
+        db.dispositivoApp.findMany.mockResolvedValue([])
         await get('?desde=2026-10-29T00:00:00Z')
-        expect(db.dispositivo.findMany.mock.calls[0][0].where.AND).toContainEqual({ updatedAt: { gt: new Date('2026-10-29T00:00:00Z') } })
+        expect(db.dispositivoApp.findMany.mock.calls[0][0].where.AND).toContainEqual({ updatedAt: { gt: new Date('2026-10-29T00:00:00Z') } })
         expect((await get('?desde=ayer')).status).toBe(400)
     })
 })
 
 describe('el tope AVISA y el cursor no pierde filas', () => {
     it('pide una fila de más; si vuelve, dice `truncado` y da por dónde seguir', async () => {
-        db.dispositivo.findMany.mockResolvedValue([fila(1), fila(2), fila(3)])
+        db.dispositivoApp.findMany.mockResolvedValue([fila(1), fila(2), fila(3)])
         const cuerpo = await (await get('?limite=2')).json()
-        expect(db.dispositivo.findMany.mock.calls[0][0].take).toBe(3)
+        expect(db.dispositivoApp.findMany.mock.calls[0][0].take).toBe(3)
         expect(cuerpo.dispositivos).toHaveLength(2)
         expect(cuerpo.truncado).toBe(true)
         expect(decodificarCursor(cuerpo.siguiente)).toEqual({ updatedAt: new Date('2026-10-29T12:00:02Z'), id: 'd2' })
     })
 
     it('con cursor, sigue DESPUÉS de esa fila por (hora, id): ni salta ni repite las que comparten hora', async () => {
-        db.dispositivo.findMany.mockResolvedValue([])
+        db.dispositivoApp.findMany.mockResolvedValue([])
         const c = codificarCursor({ updatedAt: new Date('2026-10-29T12:00:02Z'), id: 'd2' })
         await get(`?despues=${c}`)
-        expect(db.dispositivo.findMany.mock.calls[0][0].where.AND).toContainEqual({
+        expect(db.dispositivoApp.findMany.mock.calls[0][0].where.AND).toContainEqual({
             OR: [{ updatedAt: { gt: new Date('2026-10-29T12:00:02Z') } }, { updatedAt: new Date('2026-10-29T12:00:02Z'), id: { gt: 'd2' } }],
         })
-        expect(db.dispositivo.findMany.mock.calls[0][0].orderBy).toEqual([{ updatedAt: 'asc' }, { id: 'asc' }])
+        expect(db.dispositivoApp.findMany.mock.calls[0][0].orderBy).toEqual([{ updatedAt: 'asc' }, { id: 'asc' }])
     })
 
     it('un cursor inventado es 400, no un error de base; el límite se acota', async () => {
@@ -161,22 +165,38 @@ describe('la IMPORTACIÓN de lo que la aplicación ya tenía (el aparato v4 del 
 
     it('crea el aparato con SU id (v4 incluido), la app de la CREDENCIAL, sus fechas y el modelo como equipo', async () => {
         db.user.findUnique.mockResolvedValue({ id: aparato.userId })
-        db.dispositivo.findUnique.mockResolvedValue(null)
-        db.dispositivo.create.mockResolvedValue({})
+        db.dispositivoApp.findFirst.mockResolvedValue(null)
+        db.dispositivo.upsert.mockResolvedValue({ id: 'dis1' })
+        db.dispositivoApp.create.mockResolvedValue({})
         const r = await post({ dispositivos: [aparato] })
         expect(await r.json()).toEqual({ resultados: [{ aparatoId: V4, resultado: 'creado' }] })
-        expect(db.dispositivo.create.mock.calls[0][0].data).toMatchObject({
-            clientId: 'crm-apk', aparatoId: V4, userId: aparato.userId, plataforma: 'android', equipo: 'SM-X133', version: '1.0.0',
+        const ap = db.dispositivo.upsert.mock.calls[0][0]
+        expect(ap.where).toEqual({ aparatoId: V4 })
+        expect(ap.create).toMatchObject({ aparatoId: V4, plataforma: 'android', equipo: 'SM-X133', primeraVez: new Date('2026-10-13T12:00:00Z'), vistoAt: new Date('2026-10-28T20:00:00Z') })
+        // si el aparato ya estaba (por Reparto, p. ej.) NO se pisa: el `update` va vacío
+        expect(ap.update).toEqual({})
+        expect(db.dispositivoApp.create.mock.calls[0][0].data).toMatchObject({
+            dispositivoId: 'dis1', clientId: 'crm-apk', userId: aparato.userId, version: '1.0.0',
             primeraVez: new Date('2026-10-13T12:00:00Z'), vistoAt: new Date('2026-10-28T20:00:00Z'),
+            personas: { create: expect.objectContaining({ userId: aparato.userId }) },
         })
+    })
+
+    it('un aparato que YA estaba por otra aplicación se reutiliza: se le añade esta, no se duplica', async () => {
+        db.user.findUnique.mockResolvedValue({ id: aparato.userId })
+        db.dispositivoApp.findFirst.mockResolvedValue(null) // no está EN ESTA aplicación…
+        db.dispositivo.upsert.mockResolvedValue({ id: 'ya-por-reparto' }) // …pero el aparato existe
+        db.dispositivoApp.create.mockResolvedValue({})
+        await post({ dispositivos: [aparato] })
+        expect(db.dispositivoApp.create.mock.calls[0][0].data.dispositivoId).toBe('ya-por-reparto')
     })
 
     it('es IDEMPOTENTE: si ya está, no lo pisa', async () => {
         db.user.findUnique.mockResolvedValue({ id: aparato.userId })
-        db.dispositivo.findUnique.mockResolvedValue({ id: 'ya' })
+        db.dispositivoApp.findFirst.mockResolvedValue({ id: 'ya' })
         const r = await post({ dispositivos: [aparato] })
         expect(await r.json()).toEqual({ resultados: [{ aparatoId: V4, resultado: 'ya_existia' }] })
-        expect(db.dispositivo.create).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.create).not.toHaveBeenCalled()
     })
 
     it('dice POR QUÉ no entra: persona que no existe, id que no es un UUID', async () => {
@@ -186,7 +206,7 @@ describe('la IMPORTACIÓN de lo que la aplicación ya tenía (el aparato v4 del 
             { aparatoId: V4, resultado: 'persona_inexistente' },
             { aparatoId: 'no-es-uuid', resultado: 'invalido' },
         ])
-        expect(db.dispositivo.create).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.create).not.toHaveBeenCalled()
     })
 
     it('la app es la de la credencial: sin scope, 403; con `?app=` ajeno, 403; cuerpo malo, 400', async () => {
@@ -195,6 +215,6 @@ describe('la IMPORTACIÓN de lo que la aplicación ya tenía (el aparato v4 del 
         expect((await post('no es json')).status).toBe(400)
         expect((await post({ dispositivos: [] })).status).toBe(400)
         expect((await post({ dispositivos: Array.from({ length: 101 }, () => aparato) })).status).toBe(400)
-        expect(db.dispositivo.create).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.create).not.toHaveBeenCalled()
     })
 })

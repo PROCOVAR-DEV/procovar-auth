@@ -70,6 +70,10 @@ describe('la fila', () => {
         expect(f.cuentas[0]).toMatchObject({ version: '1.0.47' })
         expect(f.persona).toBe('Amado')
     })
+    it('UN MISMO APARATO en varias aplicaciones sale una vez por pestaña, y dice en qué otras está (sin repetir ni contar la propia)', () => {
+        expect(aFila({ ...D, tambienEn: ['crm-apk', 'crm-apk'] }, personas, null, AHORA).tambienEn).toEqual(['CRM'])
+        expect(aFila(D, personas, null, AHORA).tambienEn).toEqual([])
+    })
     it('sin cuentas anotadas (un aparato anterior) no rompe: lista vacía', () => {
         expect(aFila(D, new Map(), null, AHORA).cuentas).toEqual([])
     })

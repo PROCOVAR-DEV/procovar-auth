@@ -9,7 +9,7 @@ import { SignJWT } from 'jose'
 process.env.JWT_SECRET = 'un-secreto-de-pruebas-de-mas-de-32-caracteres'
 process.env.APP_URL = 'https://auth.example.com'
 
-const db = vi.hoisted(() => ({ dispositivo: { findUnique: vi.fn(), update: vi.fn() } }))
+const db = vi.hoisted(() => ({ dispositivoApp: { findFirst: vi.fn(), update: vi.fn() } }))
 const limitador = vi.hoisted(() => ({ rateLimit: vi.fn() }))
 vi.mock('@/lib/prisma', () => ({ prisma: db }))
 vi.mock('@/lib/rate-limit', () => limitador)
@@ -37,29 +37,29 @@ async function llamar(cuerpo: unknown, cabeceras: Record<string, string> = {}, b
 beforeEach(() => {
     vi.resetAllMocks()
     limitador.rateLimit.mockResolvedValue({ allowed: true, remaining: 0 })
-    db.dispositivo.findUnique.mockResolvedValue({ id: 'd1', bloqueadoAt: null, personas: [{ id: 'dp1' }] })
-    db.dispositivo.update.mockResolvedValue({})
+    db.dispositivoApp.findFirst.mockResolvedValue({ id: 'd1', bloqueadoAt: null, personas: [{ id: 'dp1' }] })
+    db.dispositivoApp.update.mockResolvedValue({})
 })
 
 describe('quién puede contar el estado de un aparato', () => {
     it('el dueño: se anota en SU fila (aplicación y persona del token)', async () => {
         const r = await llamar({ pendientes: 3, rechazados: 0, ultimaSubida: '2026-10-29T14:00:00Z', ultimoError: ' falló\nla subida ' })
         expect(r).toEqual({ status: 200, body: { ok: true, revocado: false } })
-        expect(db.dispositivo.findUnique.mock.calls[0][0].where).toEqual({ clientId_aparatoId: { clientId: 'delivery-apk', aparatoId: ID } })
-        expect(db.dispositivo.findUnique.mock.calls[0][0].select.personas.where).toEqual({ userId: 'u1' })
-        const data = db.dispositivo.update.mock.calls[0][0].data
+        expect(db.dispositivoApp.findFirst.mock.calls[0][0].where).toEqual({ clientId: 'delivery-apk', dispositivo: { aparatoId: ID } })
+        expect(db.dispositivoApp.findFirst.mock.calls[0][0].select.personas.where).toEqual({ userId: 'u1' })
+        const data = db.dispositivoApp.update.mock.calls[0][0].data
         expect(data).toMatchObject({ pendientes: 3, rechazados: 0, ultimoError: 'falló la subida' })
         expect(data.estadoAt).toBeInstanceOf(Date)
     })
 
     it('OTRA persona con un token válido NO escribe en un aparato donde nunca ha entrado (la búsqueda va con SU cuenta)', async () => {
-        db.dispositivo.findUnique.mockResolvedValue({ id: 'd1', bloqueadoAt: null, personas: [] })
+        db.dispositivoApp.findFirst.mockResolvedValue({ id: 'd1', bloqueadoAt: null, personas: [] })
         expect((await llamar({ pendientes: 99 })).status).toBe(404)
-        expect(db.dispositivo.update).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.update).not.toHaveBeenCalled()
     })
 
     it('un aparato que no está registrado es 404 (se registra al renovar)', async () => {
-        db.dispositivo.findUnique.mockResolvedValue(null)
+        db.dispositivoApp.findFirst.mockResolvedValue(null)
         expect((await llamar({})).status).toBe(404)
     })
 
@@ -71,7 +71,7 @@ describe('quién puede contar el estado de un aparato', () => {
             .setProtectedHeader({ alg: 'HS256' }).setIssuer('qb-auth').setExpirationTime('5m')
             .sign(new TextEncoder().encode(process.env.JWT_SECRET!))
         expect((await POST(req(`Bearer ${ajeno}`))).status).toBe(401)
-        expect(db.dispositivo.update).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.update).not.toHaveBeenCalled()
     })
 })
 
@@ -86,7 +86,7 @@ describe('lo que llega', () => {
     })
     it('lo absurdo se descarta campo a campo, no rompe nada', async () => {
         await llamar({ pendientes: -5, rechazados: 'muchos', ultimaSubida: '2001-01-01T00:00:00Z' })
-        const data = db.dispositivo.update.mock.calls[0][0].data
+        const data = db.dispositivoApp.update.mock.calls[0][0].data
         expect(data).not.toHaveProperty('pendientes')
         expect(data).not.toHaveProperty('rechazados')
         expect(data).not.toHaveProperty('ultimaSubida')
@@ -95,20 +95,20 @@ describe('lo que llega', () => {
 
 describe('el bloqueo y los límites', () => {
     it('un aparato bloqueado se entera: `revocado: true`', async () => {
-        db.dispositivo.findUnique.mockResolvedValue({ id: 'd1', bloqueadoAt: new Date(), personas: [{ id: 'dp1' }] })
+        db.dispositivoApp.findFirst.mockResolvedValue({ id: 'd1', bloqueadoAt: new Date(), personas: [{ id: 'dp1' }] })
         expect((await llamar({})).body).toEqual({ ok: true, revocado: true })
     })
     it('más de una por minuto: 200 `ignorado`, sin anotar nada', async () => {
         limitador.rateLimit.mockResolvedValue({ allowed: false, remaining: 0 })
         expect(await llamar({ pendientes: 1 })).toEqual({ status: 200, body: { ok: true, ignorado: true } })
-        expect(db.dispositivo.update).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.update).not.toHaveBeenCalled()
     })
     it('si el limitador no contesta, se SIGUE', async () => {
         limitador.rateLimit.mockRejectedValue(new Error('redis caído'))
         expect((await llamar({})).status).toBe(200)
     })
     it('si la base falla: 503 (la aplicación lo trata como «ahora no»), nunca 500', async () => {
-        db.dispositivo.update.mockRejectedValue(new Error('base caída'))
+        db.dispositivoApp.update.mockRejectedValue(new Error('base caída'))
         expect((await llamar({})).status).toBe(503)
     })
 })
