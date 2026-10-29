@@ -96,7 +96,9 @@ export const CLIENTES: ClienteRegistrado[] = [
             'http://localhost:8080/api/auth/callback',
         ],
         allowedDomains: ['crm.procovar.cloud', 'localhost:8080'],
-        scopes: ['callback:create', 'session:verify', 'session:revoke', 'auth:exchange'],
+        // `dispositivos:crm-apk`: puede leer y gestionar SOLO los aparatos de su APK (`/api/service/dispositivos`, docs/dispositivos.md).
+        // Tiene que estar AQUÍ y no solo en la migración: `syncClients` reescribe los scopes en cada arranque (se perdió el 29/10/2026).
+        scopes: ['callback:create', 'session:verify', 'session:revoke', 'auth:exchange', 'dispositivos:crm-apk'],
     },
     {
         clientId: 'procovar-sync',
