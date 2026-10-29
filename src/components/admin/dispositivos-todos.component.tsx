@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "@heroui/react";
-import type { FilaDeAparato } from "@/lib/dispositivos-vista";
+import { useState } from "react";
+import type { FilaDeAparato, Sugerencia } from "@/lib/dispositivos-vista";
 import type { Marca } from "@/lib/dispositivos";
 
 const ZONA = "America/Havana";
@@ -28,15 +29,32 @@ const TEXTO: Record<Marca, string> = { funciona: "funciona", atascado: "atascado
 
 /** La pestaña «Todos»: cada aparato UNA vez; una etiqueta por aplicación en la que está (clic = su pestaña, donde se bloquea y se ve la actividad). */
 export function DispositivosTodos({
-    pestanas, todos, filas, truncada, tope,
+    pestanas, todos, filas, sugerencias, truncada, tope,
 }: {
     pestanas: { clientId: string; nombre: string }[];
     todos: string;
     filas: FilaDeAparato[];
+    /** Por id de aparato: «posible mismo aparato» que un administrador puede aceptar con Unir. */
+    sugerencias: Record<string, Sugerencia>;
     truncada: boolean;
     tope: number;
 }) {
     const router = useRouter();
+    const [ocupado, setOcupado] = useState<string | null>(null);
+    const unir = async (idAparato: string, s: Sugerencia) => {
+        if (!window.confirm(`¿Juntar estas dos instalaciones en un solo aparato (${s.conTexto})?`)) return;
+        setOcupado(idAparato);
+        try {
+            await fetch(`/api/admin/dispositivos/${encodeURIComponent(s.appId)}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ accion: "unir", con: s.con }),
+            });
+            router.refresh();
+        } finally {
+            setOcupado(null);
+        }
+    };
     const ir = (app: string) => router.push(`/dashboard/dispositivos?app=${encodeURIComponent(app)}`);
 
     return (
@@ -79,6 +97,14 @@ export function DispositivosTodos({
                                         <div className="leading-tight">
                                             <div>{f.nombre ?? <span className="text-pv-tinta-suave">Sin nombre</span>}</div>
                                             <div className="text-xs text-pv-tinta-suave">{f.plataforma ?? "Sin identificar"}</div>
+                                            {sugerencias[f.id] && (
+                                                <div className="mt-1 text-xs">
+                                                    ¿Es el mismo que {sugerencias[f.id].conTexto}?{" "}
+                                                    <Button size="sm" variant="light" isDisabled={ocupado === f.id} onPress={() => unir(f.id, sugerencias[f.id])}>
+                                                        Unir
+                                                    </Button>
+                                                </div>
+                                            )}
                                         </div>
                                     </td>
                                     <td>

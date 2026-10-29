@@ -36,6 +36,8 @@ const ACCIONES: Record<string, AccionDescrita> = {
   'dispositivo.cerrar': { texto: 'Cerró la sesión de un dispositivo', tipo: 'acceso' },
   'dispositivo.bloquear': { texto: 'Bloqueó un dispositivo', tipo: 'baja' },
   'dispositivo.desbloquear': { texto: 'Desbloqueó un dispositivo', tipo: 'alta' },
+  'dispositivo.unir': { texto: 'Juntó dos instalaciones en un mismo dispositivo', tipo: 'cambio' },
+  'dispositivo.separar': { texto: 'Separó una instalación de su dispositivo', tipo: 'cambio' },
   'session.revokeAll': { texto: 'Cerró todas las sesiones de una persona', tipo: 'acceso' },
   'auth.login': { texto: 'Entró en el sistema', tipo: 'acceso' },
   'auth.logout': { texto: 'Salió del sistema', tipo: 'acceso' },

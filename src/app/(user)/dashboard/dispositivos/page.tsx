@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { DispositivosTabla } from "@/components/admin/dispositivos-tabla.component";
 import { DispositivosTodos } from "@/components/admin/dispositivos-todos.component";
-import { aFila, aFilaDeAparato, pestanas } from "@/lib/dispositivos-vista";
+import { aFila, aFilaDeAparato, pestanas, sugerirUniones } from "@/lib/dispositivos-vista";
 
 export const dynamic = "force-dynamic";
 
@@ -48,11 +48,13 @@ export default async function DispositivosPage({ searchParams }: { searchParams:
         });
         const nombresTodos = new Map(quienes.map((p) => [p.id, p.name]));
         const ahoraTodos = new Date();
+        const filasTodos = vistos.map((a) => aFilaDeAparato(a, nombresTodos, ahoraTodos));
         return (
             <DispositivosTodos
                 pestanas={tabs}
                 todos={TODOS}
-                filas={vistos.map((a) => aFilaDeAparato(a, nombresTodos, ahoraTodos))}
+                filas={filasTodos}
+                sugerencias={Object.fromEntries(sugerirUniones(filasTodos))}
                 truncada={hay}
                 tope={TOPE}
             />

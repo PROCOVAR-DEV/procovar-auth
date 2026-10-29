@@ -9,8 +9,8 @@ import { NextResponse } from 'next/server'
 process.env.APP_URL = 'https://auth.example.com'
 
 const db = vi.hoisted(() => ({
-    dispositivo: { update: vi.fn() },
-    dispositivoApp: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    dispositivo: { update: vi.fn(), create: vi.fn(), findUnique: vi.fn(), deleteMany: vi.fn() },
+    dispositivoApp: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
 }))
 const admin = vi.hoisted(() => ({ requireSystemAdmin: vi.fn() }))
 const familias = vi.hoisted(() => ({ cerrarFamilia: vi.fn(), desdeDondePide: vi.fn(() => ({ ip: '1.2.3.4', userAgent: 'Mozilla' })) }))
@@ -29,8 +29,7 @@ import { POST } from '../route'
 const APARATO = '0192f3c4-8a3b-7d0e-9d62-6a1f3b6f2c10'
 /** La fila del aparato EN SU APLICACIÓN (`dispositivo_app`), con el aparato dentro. */
 const FILA = {
-    id: 'd1', dispositivoId: 'dis1', clientId: 'crm-apk', userId: 'u1', familyId: 'fam1', bloqueadoAt: null,
-    dispositivo: { aparatoId: APARATO },
+    id: 'd1', dispositivoId: 'dis1', clientId: 'crm-apk', aparatoId: APARATO, userId: 'u1', familyId: 'fam1', bloqueadoAt: null,
 }
 
 function llamar(cuerpo: unknown, opciones: { origen?: string; tipo?: string; id?: string } = {}) {
@@ -138,5 +137,40 @@ describe('las acciones', () => {
         avisos.avisarDeDispositivo.mockResolvedValue(false)
         expect((await llamar({ accion: 'bloquear' })).status).toBe(200)
         expect(db.dispositivoApp.update).toHaveBeenCalled()
+    })
+})
+
+describe('agrupar instalaciones: Unir y Separar (solo el panel)', () => {
+    it('unir: mueve la instalación al aparato de la otra, borra el que se queda vacío y AUDITA; no avisa a nadie', async () => {
+        db.dispositivoApp.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
+            where.id === 'd1' ? FILA : { id: 'otra', dispositivoId: 'dis2' })
+        db.dispositivo.deleteMany.mockResolvedValue({ count: 1 })
+        expect((await llamar({ accion: 'unir', con: 'otra' })).status).toBe(200)
+        expect(db.dispositivoApp.update).toHaveBeenCalledWith({ where: { id: 'd1' }, data: { dispositivoId: 'dis2' } })
+        expect(db.dispositivo.deleteMany).toHaveBeenCalledWith({ where: { id: 'dis1', apps: { none: {} } } })
+        expect(auditoria.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'dispositivo.unir', userId: 'admin1' }))
+        expect(avisos.avisarDeDispositivo).not.toHaveBeenCalled()
+    })
+
+    it('unir con una instalación del MISMO aparato es 409; con una que no existe, 404', async () => {
+        db.dispositivoApp.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
+            where.id === 'd1' ? FILA : where.id === 'misma' ? { id: 'misma', dispositivoId: 'dis1' } : null)
+        expect((await llamar({ accion: 'unir', con: 'misma' })).status).toBe(409)
+        expect((await llamar({ accion: 'unir', con: 'fantasma' })).status).toBe(404)
+        expect(db.dispositivoApp.update).not.toHaveBeenCalled()
+    })
+
+    it('separar: da un aparato propio (SIN la huella) a la instalación; si ya está sola, 409', async () => {
+        db.dispositivoApp.count.mockResolvedValue(2)
+        db.dispositivo.findUnique.mockResolvedValue({ equipo: 'Samsung A14', plataforma: 'Android' })
+        db.dispositivo.create.mockResolvedValue({ id: 'nuevo' })
+        db.dispositivo.deleteMany.mockResolvedValue({ count: 0 })
+        expect((await llamar({ accion: 'separar' })).status).toBe(200)
+        expect(db.dispositivo.create.mock.calls[0][0].data).not.toHaveProperty('huella')
+        expect(db.dispositivoApp.update).toHaveBeenCalledWith({ where: { id: 'd1' }, data: { dispositivoId: 'nuevo' } })
+        expect(auditoria.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'dispositivo.separar' }))
+
+        db.dispositivoApp.count.mockResolvedValue(1)
+        expect((await llamar({ accion: 'separar' })).status).toBe(409)
     })
 })

@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const db = vi.hoisted(() => ({
     dispositivo: { update: vi.fn() },
-    dispositivoApp: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    dispositivoApp: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
 }))
 const familias = vi.hoisted(() => ({ cerrarFamilia: vi.fn(), desdeDondePide: vi.fn(() => ({ ip: '10.0.0.5', userAgent: 'crm-api' })) }))
 const avisos = vi.hoisted(() => ({ avisarDeDispositivo: vi.fn() }))
@@ -25,7 +25,7 @@ const ID = '0192f3c4-8a3b-7d0e-9d62-6a1f3b6f2c10'
 const ctxCon = (...scopes: string[]) => ({ client: { clientId: 'crm', keyVersion: 1, scopes, name: 'CRM' } })
 const CRM = ctxCon('dispositivos:crm-apk')
 /** El aparato EN LA APLICACIÓN del CRM (`dispositivo_app`), con el aparato dentro. */
-const FILA = { id: 'd1', dispositivoId: 'dis1', clientId: 'crm-apk', userId: 'u1', familyId: 'fam1', bloqueadoAt: null as Date | null, dispositivo: { aparatoId: ID } }
+const FILA = { id: 'd1', dispositivoId: 'dis1', clientId: 'crm-apk', aparatoId: ID, userId: 'u1', familyId: 'fam1', bloqueadoAt: null as Date | null }
 
 const llamar = (accion: string, cuerpo?: unknown, ctx = CRM, query = '', id = ID) =>
     (POST as unknown as (r: Request, c: unknown) => Promise<Response>)(
@@ -36,7 +36,7 @@ const llamar = (accion: string, cuerpo?: unknown, ctx = CRM, query = '', id = ID
 beforeEach(() => {
     vi.resetAllMocks()
     familias.desdeDondePide.mockReturnValue({ ip: '10.0.0.5', userAgent: 'crm-api' })
-    db.dispositivoApp.findFirst.mockResolvedValue(FILA)
+    db.dispositivoApp.findUnique.mockResolvedValue(FILA)
     db.dispositivo.update.mockResolvedValue({})
     db.dispositivoApp.update.mockResolvedValue({})
     db.dispositivoApp.updateMany.mockResolvedValue({ count: 1 })
@@ -47,9 +47,9 @@ beforeEach(() => {
 
 describe('el alcance: SOLO los aparatos de su aplicación', () => {
     it('la búsqueda lleva la app de la CREDENCIAL: un aparato de otra app no se encuentra (404)', async () => {
-        db.dispositivoApp.findFirst.mockResolvedValue(null)
+        db.dispositivoApp.findUnique.mockResolvedValue(null)
         expect((await llamar('bloquear')).status).toBe(404)
-        expect(db.dispositivoApp.findFirst.mock.calls[0][0].where).toMatchObject({ clientId: 'crm-apk', dispositivo: { aparatoId: ID } })
+        expect(db.dispositivoApp.findUnique.mock.calls[0][0].where).toEqual({ clientId_aparatoId: { clientId: 'crm-apk', aparatoId: ID } })
         expect(db.dispositivoApp.update).not.toHaveBeenCalled()
         expect(avisos.avisarDeDispositivo).not.toHaveBeenCalled()
     })
@@ -59,12 +59,12 @@ describe('el alcance: SOLO los aparatos de su aplicación', () => {
         const ajena = await llamar('bloquear', undefined, CRM, '?app=reparto')
         expect(ajena.status).toBe(403)
         expect((await ajena.json()).error).toBe('app_no_permitida')
-        expect(db.dispositivoApp.findFirst).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.findUnique).not.toHaveBeenCalled()
     })
     it('una acción que no existe, o un id que no es un UUID: 404', async () => {
         expect((await llamar('borrar')).status).toBe(404)
         expect((await llamar('bloquear', undefined, CRM, '', 'no-es-uuid')).status).toBe(404)
-        expect(db.dispositivoApp.findFirst).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.findUnique).not.toHaveBeenCalled()
     })
 })
 
@@ -85,7 +85,7 @@ describe('las acciones hacen lo mismo que el panel', () => {
     })
 
     it('desbloquear: lo deja activo y avisa con motivo `desbloqueado`', async () => {
-        db.dispositivoApp.findFirst.mockResolvedValue({ ...FILA, bloqueadoAt: new Date() })
+        db.dispositivoApp.findUnique.mockResolvedValue({ ...FILA, bloqueadoAt: new Date() })
         expect(await (await llamar('desbloquear')).json()).toEqual({ ok: true, estado: 'activo' })
         expect(db.dispositivoApp.update.mock.calls[0][0].data).toEqual({ bloqueadoAt: null, bloqueadoPor: null })
         expect(avisos.avisarDeDispositivo).toHaveBeenCalledWith(expect.objectContaining({ bloqueadoAt: null }), 'desbloqueado')

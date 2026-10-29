@@ -45,7 +45,7 @@ describe('quién puede contar el estado de un aparato', () => {
     it('el dueño: se anota en SU fila (aplicación y persona del token)', async () => {
         const r = await llamar({ pendientes: 3, rechazados: 0, ultimaSubida: '2026-10-29T14:00:00Z', ultimoError: ' falló\nla subida ' })
         expect(r).toEqual({ status: 200, body: { ok: true, revocado: false } })
-        expect(db.dispositivoApp.findFirst.mock.calls[0][0].where).toEqual({ clientId: 'delivery-apk', dispositivo: { aparatoId: ID } })
+        expect(db.dispositivoApp.findFirst.mock.calls[0][0].where).toEqual({ clientId: 'delivery-apk', aparatoId: ID })
         expect(db.dispositivoApp.findFirst.mock.calls[0][0].select.personas.where).toEqual({ userId: 'u1' })
         const data = db.dispositivoApp.update.mock.calls[0][0].data
         expect(data).toMatchObject({ pendientes: 3, rechazados: 0, ultimoError: 'falló la subida' })

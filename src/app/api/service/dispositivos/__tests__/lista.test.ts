@@ -8,8 +8,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const db = vi.hoisted(() => ({
-    dispositivo: { upsert: vi.fn() },
-    dispositivoApp: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn() },
+    dispositivo: { create: vi.fn() },
+    dispositivoApp: { findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn() },
     user: { findUnique: vi.fn() },
 }))
 vi.mock('@/lib/prisma', () => ({ prisma: db }))
@@ -34,11 +34,11 @@ const post = (cuerpo: unknown, ctx = CRM, query = '') =>
 
 /** Una fila de `dispositivo_app` con su aparato dentro (`dispositivo`): el nombre y el modelo son del APARATO, la versión de la aplicación. */
 const fila = (n: number, extra: Record<string, unknown> = {}, aparato: Record<string, unknown> = {}) => ({
-    id: `d${n}`, userId: 'u1', clientId: 'crm-apk',
+    id: `d${n}`, aparatoId: `0192f3c4-8a3b-7d0e-9d62-6a1f3b6f2c${String(n).padStart(2, '0')}`, userId: 'u1', clientId: 'crm-apk',
     sucursal: 'STG', version: '2.3.1',
     primeraVez: new Date('2026-10-20T10:00:00Z'), vistoAt: new Date('2026-10-29T12:00:00Z'),
     updatedAt: new Date(`2026-10-29T12:00:0${n}Z`), bloqueadoAt: null,
-    dispositivo: { aparatoId: `0192f3c4-8a3b-7d0e-9d62-6a1f3b6f2c${String(n).padStart(2, '0')}`, plataforma: 'Android', equipo: 'Samsung A14', nombre: null, ...aparato },
+    dispositivo: { plataforma: 'Android', equipo: 'Samsung A14', nombre: null, ...aparato },
     ...extra,
 })
 
@@ -163,37 +163,26 @@ describe('la IMPORTACIÓN de lo que la aplicación ya tenía (el aparato v4 del 
         primeraVez: '2026-10-13T12:00:00Z', ultimaVez: '2026-10-28T20:00:00Z',
     }
 
-    it('crea el aparato con SU id (v4 incluido), la app de la CREDENCIAL, sus fechas y el modelo como equipo', async () => {
+    it('crea un aparato y SU instalación con su id (v4 incluido), la app de la CREDENCIAL, sus fechas y el modelo como equipo', async () => {
         db.user.findUnique.mockResolvedValue({ id: aparato.userId })
-        db.dispositivoApp.findFirst.mockResolvedValue(null)
-        db.dispositivo.upsert.mockResolvedValue({ id: 'dis1' })
+        db.dispositivoApp.findUnique.mockResolvedValue(null)
+        db.dispositivo.create.mockResolvedValue({ id: 'dis1' })
         db.dispositivoApp.create.mockResolvedValue({})
         const r = await post({ dispositivos: [aparato] })
         expect(await r.json()).toEqual({ resultados: [{ aparatoId: V4, resultado: 'creado' }] })
-        const ap = db.dispositivo.upsert.mock.calls[0][0]
-        expect(ap.where).toEqual({ aparatoId: V4 })
-        expect(ap.create).toMatchObject({ aparatoId: V4, plataforma: 'android', equipo: 'SM-X133', primeraVez: new Date('2026-10-13T12:00:00Z'), vistoAt: new Date('2026-10-28T20:00:00Z') })
-        // si el aparato ya estaba (por Reparto, p. ej.) NO se pisa: el `update` va vacío
-        expect(ap.update).toEqual({})
+        expect(db.dispositivo.create.mock.calls[0][0].data).toMatchObject({
+            plataforma: 'android', equipo: 'SM-X133', primeraVez: new Date('2026-10-13T12:00:00Z'), vistoAt: new Date('2026-10-28T20:00:00Z'),
+        })
         expect(db.dispositivoApp.create.mock.calls[0][0].data).toMatchObject({
-            dispositivoId: 'dis1', clientId: 'crm-apk', userId: aparato.userId, version: '1.0.0',
+            dispositivoId: 'dis1', clientId: 'crm-apk', aparatoId: V4, userId: aparato.userId, version: '1.0.0',
             primeraVez: new Date('2026-10-13T12:00:00Z'), vistoAt: new Date('2026-10-28T20:00:00Z'),
             personas: { create: expect.objectContaining({ userId: aparato.userId }) },
         })
     })
 
-    it('un aparato que YA estaba por otra aplicación se reutiliza: se le añade esta, no se duplica', async () => {
-        db.user.findUnique.mockResolvedValue({ id: aparato.userId })
-        db.dispositivoApp.findFirst.mockResolvedValue(null) // no está EN ESTA aplicación…
-        db.dispositivo.upsert.mockResolvedValue({ id: 'ya-por-reparto' }) // …pero el aparato existe
-        db.dispositivoApp.create.mockResolvedValue({})
-        await post({ dispositivos: [aparato] })
-        expect(db.dispositivoApp.create.mock.calls[0][0].data.dispositivoId).toBe('ya-por-reparto')
-    })
-
     it('es IDEMPOTENTE: si ya está, no lo pisa', async () => {
         db.user.findUnique.mockResolvedValue({ id: aparato.userId })
-        db.dispositivoApp.findFirst.mockResolvedValue({ id: 'ya' })
+        db.dispositivoApp.findUnique.mockResolvedValue({ id: 'ya' })
         const r = await post({ dispositivos: [aparato] })
         expect(await r.json()).toEqual({ resultados: [{ aparatoId: V4, resultado: 'ya_existia' }] })
         expect(db.dispositivoApp.create).not.toHaveBeenCalled()
