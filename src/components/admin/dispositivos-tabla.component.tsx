@@ -137,6 +137,13 @@ export function DispositivosTabla({
                 </div>
             </div>
 
+            {app === "crm-apk" && (
+                <p className="text-sm text-pv-tinta-suave">
+                    Los aparatos del CRM los controla el CRM: él los da de alta, bloquea y desbloquea, y copia aquí su estado. Un bloqueo hecho desde esta pantalla impide
+                    que el aparato renueve su sesión en Accesos, pero el CRM no se entera por su cuenta: decídelo allí.
+                </p>
+            )}
+
             {aviso && <p role="alert" className="text-sm text-pv-tinta">{aviso}</p>}
             {truncada && <p className="text-sm text-pv-tinta">Se ven los {tope} más recientes: hay más. Filtra por sucursal para ver el resto.</p>}
 
