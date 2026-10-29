@@ -40,6 +40,7 @@ const ACCIONES: Record<string, AccionDescrita> = {
   'dispositivo.separar': { texto: 'Separó una instalación de su dispositivo', tipo: 'cambio' },
   'apk.firmar': { texto: 'Firmó una APK con la clave de la casa', tipo: 'cambio' },
   'apk.firmar_rechazada': { texto: 'Se rechazó firmar una APK', tipo: 'baja' },
+  'apk.firmar_denegada': { texto: 'Se negó firmar una APK por falta del permiso', tipo: 'baja' },
   'apk.clave_importada': { texto: 'Se importó la clave de firma de las APK', tipo: 'alta' },
   'session.revokeAll': { texto: 'Cerró todas las sesiones de una persona', tipo: 'acceso' },
   'auth.login': { texto: 'Entró en el sistema', tipo: 'acceso' },
