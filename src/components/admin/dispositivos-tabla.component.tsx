@@ -231,6 +231,11 @@ export function DispositivosTabla({
                                             <Button size="sm" variant="light" isDisabled={ocupado === f.id} onPress={() => { setNombre(f.nombrePuesto ?? ""); setEditando(f.id); }} startContent={<Icon icon="lucide:pencil" className="size-4" aria-hidden />}>
                                                 Nombre
                                             </Button>
+                                            {f.tambienEn.length > 0 && (
+                                                <Button size="sm" variant="light" isDisabled={ocupado === f.id} onPress={() => hacer(f, { accion: "separar" }, "¿Separar esta instalación del resto del aparato? Dejará de verse junto a las demás aplicaciones (no le cierra nada).")} startContent={<Icon icon="lucide:unlink" className="size-4" aria-hidden />}>
+                                                    Separar
+                                                </Button>
+                                            )}
                                             <Button size="sm" variant="light" isDisabled={ocupado === f.id} onPress={() => hacer(f, { accion: "cerrar" }, "¿Cerrar la sesión de este aparato en esta aplicación? Podrá volver a entrar.")} startContent={<Icon icon="lucide:log-out" className="size-4" aria-hidden />}>
                                                 Cerrar sesión
                                             </Button>

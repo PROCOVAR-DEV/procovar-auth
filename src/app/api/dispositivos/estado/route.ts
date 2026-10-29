@@ -69,7 +69,7 @@ async function manejar(req: NextRequest) {
 
     try {
         const fila = await prisma.dispositivoApp.findFirst({
-            where: { clientId: azp, dispositivo: { aparatoId } },
+            where: { clientId: azp, aparatoId },
             // Solo una cuenta que YA ha entrado en este aparato (varias personas usan un mismo PC) cuenta su estado.
             select: { id: true, bloqueadoAt: true, personas: { where: { userId: sub }, select: { id: true } } },
         });

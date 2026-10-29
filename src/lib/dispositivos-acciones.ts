@@ -13,7 +13,9 @@ export type OrdenDeDispositivo =
     | { accion: 'nombre'; nombre: string | null }
     | { accion: 'cerrar' }
     | { accion: 'bloquear' }
-    | { accion: 'desbloquear' };
+    | { accion: 'desbloquear' }
+    | { accion: 'separar' }
+    | { accion: 'unir'; con: string };
 
 /** EL APARATO EN UNA APLICACIÓN (`dispositivo_app`): lo que se bloquea o se cierra. El nombre, en cambio, es del aparato entero. */
 export interface FilaParaActuar {
@@ -33,7 +35,10 @@ export interface Actor {
     via: 'panel' | 'servicio';
 }
 
-export type Resultado = { ok: true } | { ok: false; estado: 409; error: 'sin_sesion_que_cerrar' };
+export type Resultado =
+    | { ok: true }
+    | { ok: false; estado: 409; error: 'sin_sesion_que_cerrar' | 'ya_esta_sola' | 'misma_instalacion' }
+    | { ok: false; estado: 404; error: 'not_found' };
 
 /**
  * Hace la acción, la audita y AVISA a la aplicación dueña. Si el aviso falla, la acción YA está hecha (`avisarDeDispositivo` no
@@ -47,6 +52,36 @@ export async function aplicarOrden(
 ): Promise<Resultado> {
     let motivo: MotivoDeDispositivo;
     let bloqueadoAt = fila.bloqueadoAt;
+
+    // Agrupar o separar instalaciones es del PANEL: no cambia lo que ve ninguna aplicación (cada una sigue con su `aparatoId`), solo
+    // qué aparato físico las junta. Se audita igual y no avisa a nadie.
+    if (orden.accion === 'separar' || orden.accion === 'unir') {
+        let destino: string;
+        if (orden.accion === 'separar') {
+            const otras = await prisma.dispositivoApp.count({ where: { dispositivoId: fila.dispositivoId } });
+            if (otras < 2) return { ok: false, estado: 409, error: 'ya_esta_sola' };
+            const origen = await prisma.dispositivo.findUnique({ where: { id: fila.dispositivoId }, select: { equipo: true, plataforma: true } });
+            // El aparato nuevo NO hereda la huella (si no, la siguiente renovación la volvería a unir sola).
+            destino = (await prisma.dispositivo.create({ data: { equipo: origen?.equipo ?? null, plataforma: origen?.plataforma ?? null }, select: { id: true } })).id;
+        } else {
+            const otra = await prisma.dispositivoApp.findUnique({ where: { id: orden.con }, select: { id: true, dispositivoId: true } });
+            if (!otra) return { ok: false, estado: 404, error: 'not_found' };
+            if (otra.dispositivoId === fila.dispositivoId) return { ok: false, estado: 409, error: 'misma_instalacion' };
+            destino = otra.dispositivoId;
+        }
+        await prisma.dispositivoApp.update({ where: { id: fila.id }, data: { dispositivoId: destino } });
+        await prisma.dispositivo.deleteMany({ where: { id: fila.dispositivoId, apps: { none: {} } } });
+        audit({
+            action: `dispositivo.${orden.accion}`,
+            userId: actor.via === 'panel' ? actor.id : undefined,
+            clientId: fila.clientId,
+            resource: fila.aparatoId,
+            ip: aparato.ip ?? null,
+            userAgent: aparato.userAgent ?? null,
+            meta: { dispositivoAppId: fila.id, de: fila.dispositivoId, a: destino, via: actor.via },
+        });
+        return { ok: true };
+    }
 
     switch (orden.accion) {
         case 'nombre': {

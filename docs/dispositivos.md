@@ -82,20 +82,30 @@ https://crm.procovar.cloud/dispositivos/{aparatoId}
 El botón «Ver actividad» de la pestaña abre esa dirección. La pantalla la protege la propia aplicación (con la
 sesión de Accesos, como todo). Reparto ya tiene su sincronización con esos datos y hará la suya como ejemplo.
 
-## Un mismo aparato, VARIAS aplicaciones (Jose, 29/10/2026)
+## Un mismo aparato, VARIAS aplicaciones (Jose, 29/10/2026) — la HUELLA
 
-Un teléfono o un PC puede tener **Reparto y el CRM a la vez**. Es **UN aparato**, no una ficha por aplicación: Accesos guarda el aparato una
-sola vez (`dispositivo`, único por `aparatoId`: modelo, plataforma, nombre) y **cuelga de él cada aplicación en la que está**
-(`dispositivo_app`: versión, sucursal, sesión, estado de trabajo y bloqueo de ESA aplicación). La pantalla enseña el aparato en la pestaña de
-cada aplicación, con «También en CRM» si está en más de una.
+Un teléfono o un PC puede tener **Reparto y el CRM a la vez**. Es **UN aparato físico**, no una ficha por aplicación. Pero **cada APK guarda su
+propio `X-Aparato-Id`** (Android aísla el almacenamiento por app), así que la misma tablet llega con DOS ids de instalación. Lo que las une
+es la **huella**:
 
-- **Para que dos aplicaciones sean el mismo aparato tienen que mandar el MISMO `X-Aparato-Id`.** Si cada APK genera el suyo, Accesos ve dos
-  aparatos distintos y no puede unirlos solo. (Cómo compartirlo es cosa de cada plataforma: en un mismo teléfono, una cabecera derivada
-  del dispositivo y no de la instalación; en Windows, un fichero común.)
-- **Bloquear y cerrar sesión son POR APLICACIÓN**: el CRM bloquea su APK en un teléfono sin dejar sin entrar a Reparto en ese mismo
-  teléfono. El **nombre** es del aparato: se lo ve igual en todas.
-- La lista de servicio (`GET /api/service/dispositivos`) devuelve **solo la fila de TU aplicación**: el CRM no ve que el aparato también
-  está en Reparto.
+```
+X-Aparato-Huella: <sha256 en hexadecimal minúsculas de  "procovar:" + ID_DE_LA_MÁQUINA>
+```
+
+- Android: `ANDROID_ID`. Windows: `MachineGuid` (`HKLM\SOFTWARE\Microsoft\Cryptography`). **Web: no se manda** (Accesos no la admite en CORS).
+- Va, junto a `X-Aparato-Id`, en `/api/auth/token` y `/api/auth/refresh`. Accesos guarda **solo el hash**. Identifica, no autentica:
+  solo agrupa la vista; no da permisos ni desbloquea nada. Mal formada = se ignora.
+- **`ANDROID_ID` solo coincide entre apps firmadas con la MISMA clave.** Reparto y Transferencias firman con `procovar-reparto.jks`; el CRM
+  tiene que firmar con esa misma. Cambiar de firma obliga a **desinstalar** la APK (se pierde lo que no se haya subido): sincronizar antes.
+- Modelo: `dispositivo` = el aparato físico (modelo, nombre, `huella` única); `dispositivo_app` = la INSTALACIÓN, con SU `aparatoId`
+  (único por `clientId`+`aparatoId`), versión, sesión, estado y bloqueo **de esa instalación**; `dispositivo_persona` = cuentas por instalación.
+  Instalación nueva con una huella que ya tiene un aparato → se cuelga de ese aparato (también si se reinstala con un id nuevo).
+- **Bloquear y cerrar sesión son por instalación**: el CRM bloquea su APK sin dejar sin entrar a Reparto. El **nombre** es del aparato.
+- Las rutas de servicio **no cambian**: van por el `aparatoId` de la instalación de la aplicación que llama, y la lista devuelve solo la
+  fila de TU aplicación (el CRM no ve que el aparato también está en Reparto).
+- Sin huella (aparatos viejos, o web): el panel sugiere «¿Es el mismo que …?» (misma persona + mismo modelo + misma sucursal, aplicaciones
+  distintas) y un administrador la acepta con **Unir**; **Separar** la deshace (auditado). Ojo: si la instalación SIGUE mandando su huella,
+  vuelve a agruparse sola en la siguiente renovación; Separar es para las que no la tienen.
 
 ## Un mismo PC, VARIAS cuentas (Jose, 29/10/2026)
 
@@ -175,8 +185,7 @@ que YA existe (importado con su id de antes) se sigue aceptando para actualizar 
 
 ## Qué guarda Accesos (para que quede dicho)
 
-Tres tablas. `dispositivo`: `aparatoId` (único), plataforma, equipo, nombre, última IP, primera y última vez visto. `dispositivo_app`: el aparato
-en cada aplicación (`clientId`), con la última cuenta, sucursal, versión, el estado informado (`ultimaDescarga`, `ultimaSubida`,
+Tres tablas. `dispositivo`: el aparato físico (`huella` única, nula si nadie la mandó), plataforma, equipo, nombre, última IP, primera y última vez visto. `dispositivo_app`: cada instalación (`clientId` + su `aparatoId`), con la última cuenta, sucursal, versión, el estado informado (`ultimaDescarga`, `ultimaSubida`,
 `pendientes`, `rechazados`, `ultimoError`) y `bloqueadoAt`/`bloqueadoPor`. `dispositivo_persona`: cada cuenta que entró en cada aplicación. **No guarda** el contenido del trabajo, ni tokens, ni
 datos de clientes. La IP y el `User-Agent` ya se guardan hoy en la sesión.
 

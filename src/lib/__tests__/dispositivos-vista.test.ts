@@ -1,6 +1,6 @@
 /** Lo que la pantalla «Dispositivos» enseña: pestañas, marcas, el enlace a «Ver actividad» (solo http/https) y el resumen. */
 import { describe, it, expect } from 'vitest'
-import { aFila, aFilaDeAparato, contarMarcas, nombreDeApp, pestanas, urlDeActividad, type DispositivoDeBD } from '../dispositivos-vista'
+import { aFila, aFilaDeAparato, sugerirUniones, contarMarcas, nombreDeApp, pestanas, urlDeActividad, type DispositivoDeBD } from '../dispositivos-vista'
 
 const AHORA = new Date('2026-10-29T18:00:00Z')
 const hace = (h: number) => new Date(AHORA.getTime() - h * 3_600_000)
@@ -85,19 +85,39 @@ describe('la fila', () => {
 })
 
 describe('la pestaña «Todos»: el aparato una vez, con una etiqueta por aplicación', () => {
-    const { id: _i, aparatoId: _a, plataforma: _p, equipo: _e, nombre: _n, ...app } = D
+    const { aparatoId: _a, plataforma: _p, equipo: _e, nombre: _n, ...app } = D
     it('une Reparto y el CRM del mismo aparato y junta las cuentas sin repetir', () => {
         const nombres = new Map([['u1', 'Maikel'], ['u2', 'Dainel']])
         const f = aFilaDeAparato({
-            id: 'dis1', aparatoId: D.aparatoId, nombre: null, equipo: 'Samsung A14', plataforma: 'Android', vistoAt: hace(1),
+            id: 'dis1', nombre: null, equipo: 'Samsung A14', plataforma: 'Android', vistoAt: hace(1),
             apps: [
-                { ...app, clientId: 'crm-apk', version: '2.3.1', personas: [{ userId: 'u1', vistoAt: hace(5) }] },
-                { ...app, clientId: 'delivery-apk', personas: [{ userId: 'u1', vistoAt: hace(2) }, { userId: 'u2', vistoAt: hace(3) }], rechazados: 2 },
+                { ...app, id: 'a-crm', clientId: 'crm-apk', version: '2.3.1', personas: [{ userId: 'u1', vistoAt: hace(5) }] },
+                { ...app, id: 'a-rep', clientId: 'delivery-apk', personas: [{ userId: 'u1', vistoAt: hace(2) }, { userId: 'u2', vistoAt: hace(3) }], rechazados: 2 },
             ],
         }, nombres, AHORA)
         expect(f.nombre).toBe('Samsung A14')
         expect(f.apps.map((a) => [a.nombre, a.marca])).toEqual([['CRM', 'funciona'], ['Reparto', 'atascado']])
         expect(f.cuentas.map((c) => c.persona)).toEqual(['Maikel', 'Dainel'])
         expect(f.cuentas[0].app).toBe('Reparto') // la vez más reciente de Maikel fue en Reparto
+    })
+})
+
+describe('«posible mismo aparato» (lo que no se agrupó solo)', () => {
+    const solo = (id: string, clientId: string, extra: Record<string, unknown> = {}) => aFilaDeAparato({
+        id, nombre: null, equipo: 'Samsung A14', plataforma: 'Android', vistoAt: hace(1),
+        apps: [{ ...app2, id: `a-${id}`, clientId, personas: [{ userId: 'u1', vistoAt: hace(2) }], ...extra }],
+    }, new Map([['u1', 'Maikel']]), AHORA)
+    const { aparatoId: _a2, plataforma: _p2, equipo: _e2, nombre: _n2, id: _i2, ...app2 } = D
+
+    it('misma persona, mismo modelo y misma sucursal en dos aplicaciones distintas → sugiere unirlas', () => {
+        const s = sugerirUniones([solo('A', 'delivery-apk'), solo('B', 'crm-apk')])
+        expect(s.get('A')).toMatchObject({ appId: 'a-A', con: 'a-B' })
+        expect(s.get('A')?.conTexto).toContain('CRM')
+    })
+    it('NO sugiere si es la misma aplicación, otra sucursal u otro modelo', () => {
+        expect(sugerirUniones([solo('A', 'delivery-apk'), solo('B', 'delivery-apk')]).size).toBe(0)
+        expect(sugerirUniones([solo('A', 'delivery-apk'), solo('B', 'crm-apk', { sucursal: 'HAB' })]).size).toBe(0)
+        const otroModelo = aFilaDeAparato({ id: 'C', nombre: 'Xiaomi', equipo: null, plataforma: null, vistoAt: hace(1), apps: [{ ...app2, id: 'a-C', clientId: 'crm-apk', personas: [{ userId: 'u1', vistoAt: hace(2) }] }] }, new Map([['u1', 'Maikel']]), AHORA)
+        expect(sugerirUniones([solo('A', 'delivery-apk'), otroModelo]).size).toBe(0)
     })
 })

@@ -5,6 +5,8 @@
  *   { accion: 'cerrar' }                          cierra su sesión: deja de renovar y sale (puede volver a entrar)
  *   { accion: 'bloquear' }                        cierra su sesión Y no vuelve a entrar con ese `X-Aparato-Id`
  *   { accion: 'desbloquear' }                     le deja volver
+ *   { accion: 'separar' }                         saca esta instalación de su aparato y le da uno propio (deshace una unión)
+ *   { accion: 'unir', con: <id de otra fila> }    junta esta instalación en el aparato de la otra (los que no se agruparon solos)
  *
  * Solo el administrador global (como todo el panel `/dashboard`). `{id}` es el de la fila del aparato EN SU APLICACIÓN (`dispositivo_app`), nunca el `aparatoId`; bloquear y cerrar sesión son por aplicación, el nombre es del aparato. Cada acción
  * queda en la auditoría y AVISA a la aplicación dueña del aparato por su canal de Redis (`lib/eventos-de-dispositivos.ts`),
@@ -29,6 +31,8 @@ const Orden = z.discriminatedUnion('accion', [
     z.object({ accion: z.literal('cerrar') }),
     z.object({ accion: z.literal('bloquear') }),
     z.object({ accion: z.literal('desbloquear') }),
+    z.object({ accion: z.literal('separar') }),
+    z.object({ accion: z.literal('unir'), con: z.string().regex(/^[\w-]{1,128}$/) }),
 ]);
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -53,11 +57,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     try {
         const crudo = await prisma.dispositivoApp.findUnique({
             where: { id },
-            select: { id: true, dispositivoId: true, clientId: true, userId: true, familyId: true, bloqueadoAt: true, dispositivo: { select: { aparatoId: true } } },
+            select: { id: true, dispositivoId: true, clientId: true, aparatoId: true, userId: true, familyId: true, bloqueadoAt: true },
         });
         if (!crudo) return json({ error: 'not_found' }, 404);
-        const { dispositivo, ...resto } = crudo;
-        const fila = { ...resto, aparatoId: dispositivo.aparatoId };
+        const fila = crudo;
 
         const r = await aplicarOrden(fila, orden.data, { id: admin.user.id, via: 'panel' }, desdeDondePide(req.headers));
         if (!r.ok) return json({ error: r.error }, r.estado);

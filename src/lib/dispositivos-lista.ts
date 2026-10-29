@@ -88,6 +88,8 @@ export function fechaOpcional(crudo: string | null | undefined): Date | null {
 /** Una fila de `dispositivo_app` con los datos del aparato (`dispositivo`) que le corresponden. */
 export interface FilaDeBD {
     id: string;
+    /** El `X-Aparato-Id` de ESTA instalación. */
+    aparatoId: string;
     userId: string;
     clientId: string;
     sucursal: string | null;
@@ -96,7 +98,7 @@ export interface FilaDeBD {
     vistoAt: Date;
     updatedAt: Date;
     bloqueadoAt: Date | null;
-    dispositivo: { aparatoId: string; plataforma: string | null; equipo: string | null; nombre: string | null };
+    dispositivo: { plataforma: string | null; equipo: string | null; nombre: string | null };
     /** Todas las cuentas que han entrado en este aparato en esta aplicación (la más reciente primero). */
     personas?: { userId: string; primeraVez: Date; vistoAt: Date }[];
 }
@@ -121,7 +123,7 @@ export interface DispositivoDeServicio {
 
 export function aServicio(d: FilaDeBD): DispositivoDeServicio {
     return {
-        aparatoId: d.dispositivo.aparatoId,
+        aparatoId: d.aparatoId,
         userId: d.userId,
         app: d.clientId,
         sucursal: d.sucursal,

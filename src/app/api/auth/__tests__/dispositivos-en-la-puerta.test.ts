@@ -15,8 +15,8 @@ const db = vi.hoisted(() => ({
     user: { findUnique: vi.fn() },
     refreshToken: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     session: { findUnique: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
-    dispositivo: { upsert: vi.fn() },
-    dispositivoApp: { upsert: vi.fn(), findFirst: vi.fn() },
+    dispositivo: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn(), deleteMany: vi.fn() },
+    dispositivoApp: { upsert: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     dispositivoPersona: { upsert: vi.fn() },
 }))
 const betterAuth = vi.hoisted(() => ({ signInEmail: vi.fn() }))
@@ -64,7 +64,10 @@ beforeEach(() => {
     db.refreshToken.updateMany.mockResolvedValue({ count: 1 })
     db.refreshToken.update.mockResolvedValue({})
     db.refreshToken.findUnique.mockResolvedValue(FILA_DE_REFRESH)
-    db.dispositivo.upsert.mockResolvedValue({ id: 'd1' })
+    db.dispositivo.create.mockResolvedValue({ id: 'd1' })
+    db.dispositivo.update.mockResolvedValue({ id: 'd1', huella: null })
+    db.dispositivo.findUnique.mockResolvedValue(null)
+    db.dispositivoApp.findUnique.mockResolvedValue(null)
     db.dispositivoApp.upsert.mockResolvedValue({ id: 'da1' })
     db.dispositivoPersona.upsert.mockResolvedValue({})
     db.dispositivoApp.findFirst.mockResolvedValue(null)
@@ -75,11 +78,10 @@ describe('POST /api/auth/refresh con X-Aparato-Id', () => {
         const r = await llamar(refresh, { refresh_token: 'el-que-tengo' }, { 'x-aparato-id': ID, 'x-aparato-nombre': 'PC de Maikel' })
 
         expect(r.status).toBe(200)
-        expect(db.dispositivo.upsert).toHaveBeenCalledTimes(1)
-        expect(db.dispositivo.upsert.mock.calls[0][0].where).toEqual({ aparatoId: ID })
-        expect(db.dispositivo.upsert.mock.calls[0][0].update).toMatchObject({ plataforma: 'Windows', equipo: 'PC de Maikel' })
+        expect(db.dispositivo.create).toHaveBeenCalledTimes(1)
+        expect(db.dispositivo.create.mock.calls[0][0].data).toMatchObject({ plataforma: 'Windows', equipo: 'PC de Maikel' })
         const app = db.dispositivoApp.upsert.mock.calls[0][0]
-        expect(app.where).toEqual({ dispositivoId_clientId: { dispositivoId: 'd1', clientId: 'delivery-apk' } })
+        expect(app.where).toEqual({ clientId_aparatoId: { clientId: 'delivery-apk', aparatoId: ID } })
         expect(app.update).toMatchObject({ userId: 'u1', sucursal: 'STG', version: '1.0.47', familyId: 'fam1' })
         // Y la CUENTA queda anotada en ese aparato y aplicación.
         expect(db.dispositivoPersona.upsert.mock.calls[0][0].where).toEqual({ dispositivoAppId_userId: { dispositivoAppId: 'da1', userId: 'u1' } })
@@ -88,24 +90,24 @@ describe('POST /api/auth/refresh con X-Aparato-Id', () => {
     it('sin la cabecera, o con una que no es un UUID, NO anota nada y la renovación es la de siempre', async () => {
         expect((await llamar(refresh, { refresh_token: 'a' })).status).toBe(200)
         expect((await llamar(refresh, { refresh_token: 'b' }, { 'x-aparato-id': 'no-soy-un-uuid' })).status).toBe(200)
-        expect(db.dispositivo.upsert).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.upsert).not.toHaveBeenCalled()
     })
 
     it('un UUID v4 NUEVO no crea nada (hay que usar v7), pero uno que ya existe (importado) SÍ se actualiza', async () => {
         const V4 = '0f4c9c1e-8a3b-4d0e-9d62-6a1f3b6f2c10'
-        db.dispositivoApp.findFirst.mockResolvedValue(null)
+        db.dispositivoApp.findUnique.mockResolvedValue(null)
         expect((await llamar(refresh, { refresh_token: 'a' }, { 'x-aparato-id': V4 })).status).toBe(200)
-        expect(db.dispositivo.upsert).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.upsert).not.toHaveBeenCalled()
 
-        // existe, pero NO está bloqueado (la comprobación del bloqueo lleva `bloqueadoAt` en el filtro)
-        db.dispositivoApp.findFirst.mockImplementation(async ({ where }: { where: { bloqueadoAt?: unknown } }) => (where.bloqueadoAt ? null : { id: 'd-importado' }))
+        // existe (importado) y no está bloqueado
+        db.dispositivoApp.findUnique.mockResolvedValue({ id: 'd-importado', dispositivoId: 'dis-i' })
         expect((await llamar(refresh, { refresh_token: 'b' }, { 'x-aparato-id': V4 })).status).toBe(200)
-        expect(db.dispositivo.upsert).toHaveBeenCalledTimes(1)
-        expect(db.dispositivo.upsert.mock.calls[0][0].where).toEqual({ aparatoId: V4 })
+        expect(db.dispositivoApp.upsert).toHaveBeenCalledTimes(1)
+        expect(db.dispositivoApp.upsert.mock.calls[0][0].where).toEqual({ clientId_aparatoId: { clientId: 'delivery-apk', aparatoId: V4 } })
     })
 
     it('si la tabla de dispositivos falla, la renovación SIGUE (ni 401 ni 500)', async () => {
-        db.dispositivo.upsert.mockRejectedValue(new Error('base caída'))
+        db.dispositivoApp.findUnique.mockRejectedValue(new Error('base caída'))
         const r = await llamar(refresh, { refresh_token: 'x' }, { 'x-aparato-id': ID })
         expect(r.status).toBe(200)
         expect(r.body.refresh_token).toEqual(expect.any(String))
@@ -118,9 +120,9 @@ describe('POST /api/auth/refresh con X-Aparato-Id', () => {
         // solo se MIRÓ de qué aplicación es el refresh; no se gastó ni se emitió nada
         expect(db.refreshToken.updateMany).not.toHaveBeenCalled()
         expect(db.refreshToken.create).not.toHaveBeenCalled()
-        expect(db.dispositivo.upsert).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.upsert).not.toHaveBeenCalled()
         // y se miró el bloqueo EN LA APLICACIÓN de ese refresh, no en todas
-        expect(db.dispositivoApp.findFirst.mock.calls[0][0].where).toMatchObject({ clientId: 'delivery-apk', dispositivo: { aparatoId: ID } })
+        expect(db.dispositivoApp.findFirst.mock.calls[0][0].where).toMatchObject({ clientId: 'delivery-apk', aparatoId: ID })
     })
 
     it('si no se puede comprobar el bloqueo, se DEJA PASAR (una caída no bloquea a nadie)', async () => {
@@ -145,8 +147,7 @@ describe('POST /api/auth/token con X-Aparato-Id', () => {
     it('anota el aparato al entrar', async () => {
         const r = await llamar(token, { email: 'maikel@procovar.local', password: 'buena' }, { 'x-aparato-id': ID })
         expect(r.status).toBe(200)
-        expect(db.dispositivo.upsert.mock.calls[0][0].create).toMatchObject({ aparatoId: ID })
-        expect(db.dispositivoApp.upsert.mock.calls[0][0].create).toMatchObject({ userId: 'u1', clientId: 'delivery-apk' })
+        expect(db.dispositivoApp.upsert.mock.calls[0][0].create).toMatchObject({ userId: 'u1', clientId: 'delivery-apk', aparatoId: ID })
     })
 
     it('un aparato bloqueado NO entra (403) y no deja sesión abierta', async () => {
@@ -159,6 +160,6 @@ describe('POST /api/auth/token con X-Aparato-Id', () => {
 
     it('sin la cabecera todo es como antes', async () => {
         expect((await llamar(token, { email: 'maikel@procovar.local', password: 'buena' })).status).toBe(200)
-        expect(db.dispositivo.upsert).not.toHaveBeenCalled()
+        expect(db.dispositivoApp.upsert).not.toHaveBeenCalled()
     })
 })

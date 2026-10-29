@@ -41,8 +41,14 @@ export function limpiarTexto(valor: unknown, max: number): string | null {
     return t ? t.slice(0, max) : null;
 }
 
+/** La huella: sha256 en hexadecimal (64 minúsculas). Cualquier otra cosa se ignora: nunca rompe la petición. */
+const HUELLA = /^[0-9a-f]{64}$/;
+export const esHuella = (h: string): boolean => HUELLA.test(h);
+
 export interface CabecerasDeAparato {
     aparatoId: string | null;
+    /** `X-Aparato-Huella`: lo que une las instalaciones (Reparto, CRM…) de un mismo aparato físico. Solo agrupa la vista. */
+    huella: string | null;
     /** `true` si es un UUID v7: solo con v7 se puede CREAR un aparato; uno que no lo es solo vale si ya existe. */
     esV7: boolean;
     equipo: string | null;
@@ -52,8 +58,10 @@ export interface CabecerasDeAparato {
 export function leerCabecerasDeAparato(cabeceras: Headers): CabecerasDeAparato {
     const id = (cabeceras.get('x-aparato-id')?.trim() ?? '').toLowerCase();
     const bien = UUID_CUALQUIERA.test(id);
+    const h = (cabeceras.get('x-aparato-huella')?.trim() ?? '').toLowerCase();
     return {
         aparatoId: bien ? id : null,
+        huella: HUELLA.test(h) ? h : null,
         esV7: bien && UUID.test(id),
         equipo: limpiarTexto(cabeceras.get('x-aparato-nombre'), MAX_EQUIPO),
     };
@@ -99,6 +107,8 @@ export interface DatosDeRegistro {
     userId: string;
     clientId: string;
     aparatoId: string;
+    /** La huella del aparato físico, si la instalación la mandó. */
+    huella?: string | null;
     equipo: string | null;
     sucursal: string | null;
     ip: string | null;
@@ -114,24 +124,43 @@ export async function registrarDispositivo(d: DatosDeRegistro): Promise<boolean>
     try {
         const { version, plataforma } = partesDelAgente(d.userAgent);
         const ahora = new Date();
-        // EL APARATO (uno solo, esté en las aplicaciones que esté), la APLICACIÓN dentro de él y la CUENTA dentro de ella.
-        // El nombre que le puso el aparato solo se pisa si trae uno; el que puso un administrador (`nombre`) no se toca.
-        const aparato = await prisma.dispositivo.upsert({
-            where: { aparatoId: d.aparatoId },
-            create: { aparatoId: d.aparatoId, plataforma, equipo: d.equipo, ipUltima: d.ip, userAgent: limpiarTexto(d.userAgent, MAX_UA), primeraVez: ahora, vistoAt: ahora },
-            update: {
-                ...(plataforma ? { plataforma } : {}),
-                ...(d.equipo ? { equipo: d.equipo } : {}),
-                ipUltima: d.ip,
-                userAgent: limpiarTexto(d.userAgent, MAX_UA),
-                vistoAt: ahora,
-            },
-            select: { id: true },
+        // 1) LA INSTALACIÓN (su `X-Aparato-Id` es único por aplicación) y 2) EL APARATO FÍSICO al que pertenece: el que ya tenía, o el
+        // que tiene su huella (así Reparto y el CRM de una misma tablet acaban en UN aparato), o uno nuevo.
+        const instalacion = await prisma.dispositivoApp.findUnique({
+            where: { clientId_aparatoId: { clientId: d.clientId, aparatoId: d.aparatoId } },
+            select: { id: true, dispositivoId: true },
         });
+        const dueno = d.huella ? await prisma.dispositivo.findUnique({ where: { huella: d.huella }, select: { id: true } }) : null;
+
+        let dispositivoId = instalacion?.dispositivoId ?? null;
+        if (instalacion && dueno && dueno.id !== instalacion.dispositivoId) {
+            // La huella ya era de OTRO aparato: esta instalación se une a él, y el que dejó, si se queda vacío, se va.
+            await prisma.dispositivoApp.update({ where: { id: instalacion.id }, data: { dispositivoId: dueno.id } });
+            await prisma.dispositivo.deleteMany({ where: { id: instalacion.dispositivoId, apps: { none: {} } } });
+            dispositivoId = dueno.id;
+        }
+        // Los datos del aparato: el nombre que le puso el aparato solo se pisa si trae uno; el de un administrador (`nombre`) no se toca.
+        const delAparato = {
+            ...(plataforma ? { plataforma } : {}),
+            ...(d.equipo ? { equipo: d.equipo } : {}),
+            ipUltima: d.ip,
+            userAgent: limpiarTexto(d.userAgent, MAX_UA),
+            vistoAt: ahora,
+        };
+        if (!dispositivoId) {
+            dispositivoId =
+                dueno?.id ??
+                (await prisma.dispositivo.create({ data: { huella: d.huella ?? null, primeraVez: ahora, ...delAparato }, select: { id: true } })).id;
+        }
+        const aparato = await prisma.dispositivo.update({ where: { id: dispositivoId }, data: delAparato, select: { id: true, huella: true } });
+        // Una huella nueva solo se anota si el aparato aún no tiene una (no se pisa la de una unión hecha a mano).
+        if (d.huella && !aparato.huella) {
+            await prisma.dispositivo.updateMany({ where: { id: aparato.id, huella: null }, data: { huella: d.huella } }).catch(() => undefined);
+        }
         // `userId` es la ÚLTIMA cuenta que entró en esta aplicación; TODAS quedan anotadas en `DispositivoPersona` (abajo).
         const enApp = await prisma.dispositivoApp.upsert({
-            where: { dispositivoId_clientId: { dispositivoId: aparato.id, clientId: d.clientId } },
-            create: { dispositivoId: aparato.id, clientId: d.clientId, userId: d.userId, sucursal: d.sucursal, version, primeraVez: ahora, vistoAt: ahora, ...(d.familyId ? { familyId: d.familyId } : {}) },
+            where: { clientId_aparatoId: { clientId: d.clientId, aparatoId: d.aparatoId } },
+            create: { dispositivoId: aparato.id, clientId: d.clientId, aparatoId: d.aparatoId, userId: d.userId, sucursal: d.sucursal, version, primeraVez: ahora, vistoAt: ahora, ...(d.familyId ? { familyId: d.familyId } : {}) },
             update: { userId: d.userId, sucursal: d.sucursal, version, vistoAt: ahora, ...(d.familyId ? { familyId: d.familyId } : {}) },
             select: { id: true },
         });
@@ -155,7 +184,7 @@ export async function registrarDispositivo(d: DatosDeRegistro): Promise<boolean>
 export async function dispositivoBloqueado(clientId: string, aparatoId: string): Promise<boolean> {
     try {
         const fila = await prisma.dispositivoApp.findFirst({
-            where: { clientId, dispositivo: { aparatoId } },
+            where: { clientId, aparatoId },
             select: { bloqueadoAt: true },
         });
         return !!fila?.bloqueadoAt;
@@ -176,7 +205,7 @@ export async function aparatoBloqueado(cabeceras: Headers, clientId: string | nu
     try {
         const fila = await conTope(
             prisma.dispositivoApp.findFirst({
-                where: { clientId, bloqueadoAt: { not: null }, dispositivo: { aparatoId } },
+                where: { clientId, aparatoId, bloqueadoAt: { not: null } },
                 select: { id: true },
             }),
             1500
@@ -215,7 +244,7 @@ export async function registrarDelPar(
     aparato: { ip?: string | null; userAgent?: string | null }
 ): Promise<void> {
     try {
-        const { aparatoId, esV7, equipo } = leerCabecerasDeAparato(cabeceras);
+        const { aparatoId, esV7, equipo, huella } = leerCabecerasDeAparato(cabeceras);
         if (!aparatoId) return;
         const t = delTokenRecienFirmado(par.token);
         if (!t) return;
@@ -223,8 +252,8 @@ export async function registrarDelPar(
             (async () => {
                 // Un id que no es v7 NO crea nada: solo vale si el aparato ya estaba (importado con su id de antes).
                 if (!esV7) {
-                    const existe = await prisma.dispositivoApp.findFirst({
-                        where: { clientId: t.azp, dispositivo: { aparatoId } },
+                    const existe = await prisma.dispositivoApp.findUnique({
+                        where: { clientId_aparatoId: { clientId: t.azp, aparatoId } },
                         select: { id: true },
                     });
                     if (!existe) return;
@@ -236,6 +265,7 @@ export async function registrarDelPar(
                     userId: t.sub,
                     clientId: t.azp,
                     aparatoId,
+                    huella,
                     equipo,
                     sucursal: t.sucursal,
                     ip: aparato.ip ?? null,

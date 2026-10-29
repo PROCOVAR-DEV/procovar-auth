@@ -141,6 +141,8 @@ export function contarMarcas(filas: readonly Pick<FilaDeDispositivo, 'marca'>[])
 
 /** La pestaña «Todos»: el aparato UNA vez, con una etiqueta por cada aplicación en la que está. */
 export interface EtiquetaDeApp {
+    /** La fila de la instalación (`dispositivo_app.id`): lo que reciben las acciones del panel. */
+    id: string;
     clientId: string;
     nombre: string;
     marca: Marca;
@@ -151,7 +153,6 @@ export interface EtiquetaDeApp {
 
 export interface FilaDeAparato {
     id: string;
-    aparatoId: string;
     nombre: string | null;
     plataforma: string | null;
     vistoAt: string;
@@ -162,12 +163,11 @@ export interface FilaDeAparato {
 
 export interface AparatoDeBD {
     id: string;
-    aparatoId: string;
     nombre: string | null;
     equipo: string | null;
     plataforma: string | null;
     vistoAt: Date;
-    apps: (Omit<DispositivoDeBD, 'id' | 'aparatoId' | 'plataforma' | 'equipo' | 'nombre' | 'tambienEn' | 'personas'> & {
+    apps: (Omit<DispositivoDeBD, 'aparatoId' | 'plataforma' | 'equipo' | 'nombre' | 'tambienEn' | 'personas'> & {
         personas?: { userId: string; vistoAt: Date }[];
     })[];
 }
@@ -184,11 +184,11 @@ export function aFilaDeAparato(a: AparatoDeBD, personas: ReadonlyMap<string, str
     }
     return {
         id: a.id,
-        aparatoId: a.aparatoId,
         nombre: a.nombre ?? a.equipo,
         plataforma: a.plataforma,
         vistoAt: a.vistoAt.toISOString(),
         apps: apps.map((d) => ({
+            id: d.id,
             clientId: d.clientId,
             nombre: nombreDeApp(d.clientId),
             marca: marcaDelDispositivo(d, ahora),
@@ -198,4 +198,37 @@ export function aFilaDeAparato(a: AparatoDeBD, personas: ReadonlyMap<string, str
         })),
         cuentas: [...vistas.values()].sort((x, y) => y.vistoAt.getTime() - x.vistoAt.getTime()).map((c) => ({ ...c, vistoAt: c.vistoAt.toISOString() })),
     };
+}
+
+/**
+ * «POSIBLE MISMO APARATO» — para lo que no se agrupó solo (sin huella). Dos aparatos que cada uno tiene UNA sola instalación, de
+ * aplicaciones distintas, con el mismo nombre/modelo, la misma sucursal y al menos una cuenta en común. Es una SUGERENCIA: un
+ * administrador la acepta con «Unir» (o no); nada se junta solo por parecido.
+ */
+export interface Sugerencia {
+    /** La instalación que se movería (la de este aparato). */
+    appId: string;
+    /** La instalación del otro aparato, en cuyo aparato se juntaría. */
+    con: string;
+    /** Cómo se lee el otro: «Samsung A14 · CRM». */
+    conTexto: string;
+}
+
+export function sugerirUniones(filas: readonly FilaDeAparato[]): Map<string, Sugerencia> {
+    const salida = new Map<string, Sugerencia>();
+    const clave = (f: FilaDeAparato) => (f.nombre ?? '').trim().toLowerCase();
+    const solas = filas.filter((f) => f.apps.length === 1 && clave(f));
+    for (const f of solas) {
+        const otro = solas.find(
+            (g) =>
+                g.id !== f.id &&
+                clave(g) === clave(f) &&
+                g.apps[0].clientId !== f.apps[0].clientId &&
+                !!g.apps[0].sucursal &&
+                g.apps[0].sucursal === f.apps[0].sucursal &&
+                g.cuentas.some((c) => f.cuentas.some((x) => x.persona === c.persona))
+        );
+        if (otro) salida.set(f.id, { appId: f.apps[0].id, con: otro.apps[0].id, conTexto: `${otro.nombre} · ${otro.apps[0].nombre}` });
+    }
+    return salida;
 }
