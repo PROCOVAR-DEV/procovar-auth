@@ -140,6 +140,8 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
   e('aft.entrar',       'Entrar', 'aft', 'Entrar en Activos Fijos', 'Access Fixed Assets'),
   // El CRM de Amado decide lo de dentro por el NOMBRE del rol, como Reparto; esto es sólo la puerta.
   e('crm.entrar',       'Entrar', 'crm', 'Entrar en el CRM', 'Access the CRM'),
+  // Transferencias (cuadre de transferencias): la web y su APK. Lo de dentro lo decide por el NOMBRE del rol.
+  e('transferencias.entrar', 'Entrar', 'transferencias', 'Entrar en Transferencias', 'Access Transferencias'),
 
   // ══ Las pantallas de Accesos ═════════════════════════════════════════════
   e('auth.sucursales',   'Vistas', 'auth', 'Ver Sucursales', 'View Sucursales'),

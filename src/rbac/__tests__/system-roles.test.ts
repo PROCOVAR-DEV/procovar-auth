@@ -52,7 +52,8 @@ describe('los roles de Procovar', () => {
     const suyas = systemRolePermissionKeys('ECONOMICA')
     const aft = PERMISSION_CATALOG.filter((p) => p.service === 'aft').map((p) => p.key)
 
-    expect([...suyas].sort()).toEqual([...aft].sort())
+    // AFT entero y, desde el 19/10/2026, la llave de entrada a Transferencias; nada más.
+    expect([...suyas].sort()).toEqual([...aft, 'transferencias.entrar'].sort())
     // El catálogo incluido: quien inventaría necesita crear el área donde va el activo.
     expect(suyas).toContain('aft.manage')
     expect(suyas.some((k) => k.startsWith('pedido.'))).toBe(false)
@@ -233,6 +234,11 @@ describe('los roles de Procovar', () => {
   it('al CRM entran todos menos OPERADOR, ECONOMICA y ANALISTA (12/10/2026)', () => {
     const entran = SYSTEM_ROLE_NAMES.filter((r) => systemRolePermissionKeys(r).includes('crm.entrar'))
     expect([...entran].sort()).toEqual(['ADMINISTRADOR', 'DESARROLLADOR', 'GERENTE', 'GESTOR', 'LOGISTICO', 'SUPER ADMIN', 'SUPERVISOR'])
+  })
+
+  it('a Transferencias entran DESARROLLADOR, SUPER ADMIN, ADMINISTRADOR, GERENTE y ECONOMICA; nadie más (19/10/2026)', () => {
+    const entran = SYSTEM_ROLE_NAMES.filter((r) => systemRolePermissionKeys(r).includes('transferencias.entrar'))
+    expect([...entran].sort()).toEqual(['ADMINISTRADOR', 'DESARROLLADOR', 'ECONOMICA', 'GERENTE', 'SUPER ADMIN'])
   })
 
   it('ningún rol da un permiso que no exista', () => {

@@ -90,6 +90,12 @@ describe('aplicacionesVisibles', () => {
         expect(ambos).toContain('aft')
     })
 
+    it('la tarjeta de Transferencias sale con su llave y no sin ella (19/10/2026)', () => {
+        expect(ids(conLlaves('transferencias.entrar'))).toContain('transferencias')
+        expect(ids(conLlaves('pedido.entrar', 'aft.entrar', 'crm.entrar'))).not.toContain('transferencias')
+        expect(LLAVE_DE_ENTRADA.transferencias).toBe('transferencias.entrar')
+    })
+
     it('si el rol pierde una llave, la aplicación desaparece sola', () => {
         expect(ids(conLlaves('pedido.entrar', 'delivery.entrar'))).toContain('delivery')
         expect(ids(conLlaves('pedido.entrar'))).not.toContain('delivery')

@@ -192,10 +192,10 @@ export const CLIENTE_POR_DEFECTO = 'delivery-apk';
 
 /**
  * Las APK que pueden pedir par en `/api/auth/token`, lista CERRADA. Cada una abre con su
- * llave de `LLAVE_DEL_CLIENTE` (`delivery-apk` → `delivery.entrar`, `crm-apk` → `crm.entrar`).
+ * llave de `LLAVE_DEL_CLIENTE` (`delivery-apk` → `delivery.entrar`, `crm-apk` → `crm.entrar`, `transferencias-apk` → `transferencias.entrar`).
  * El refresh guarda con cuál nació y renueva siempre con ESA (`emitirDesde`).
  */
-export const CLIENTES_APK = [CLIENTE_POR_DEFECTO, 'crm-apk'] as const;
+export const CLIENTES_APK = [CLIENTE_POR_DEFECTO, 'crm-apk', 'transferencias-apk'] as const;
 
 export interface Par {
     token: string;

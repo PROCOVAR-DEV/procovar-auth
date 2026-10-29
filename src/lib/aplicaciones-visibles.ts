@@ -128,6 +128,14 @@ export const APLICACIONES_DE_LA_CASA: Destino[] = [
         externo: true,
     },
     {
+        clientId: 'transferencias',
+        href: 'https://cuadre.procovar.cloud',
+        icono: 'lucide:arrow-left-right',
+        titulo: 'Transferencias',
+        descripcion: 'Cuadre de transferencias bancarias con las facturas.',
+        externo: true,
+    },
+    {
         clientId: 'portal',
         href: 'https://procovar.cloud',
         icono: 'lucide:home',
@@ -161,6 +169,7 @@ export const LLAVE_DE_ENTRADA: Readonly<Record<string, string | null>> = {
     ccsa: 'ccsa.entrar',
     aft: 'aft.entrar',
     crm: 'crm.entrar',
+    transferencias: 'transferencias.entrar',
     entrega: null,
     caja: null,
     traslado: null,

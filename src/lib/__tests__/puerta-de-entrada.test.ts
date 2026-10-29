@@ -55,6 +55,7 @@ describe('el mapa clientId → llave', () => {
             'procovar-notify': 'avisos.entrar',
             crm: 'crm.entrar',
             'crm-apk': 'crm.entrar',
+            'transferencias-apk': 'transferencias.entrar',
         })
     })
 
@@ -109,6 +110,15 @@ describe('puedeEntrar', () => {
         expect(await puedeEntrar('u1', 'delivery-apk')).toBe(false)
         db.user.findUnique.mockResolvedValue(persona({ porDefecto: ['delivery.entrar'] }))
         for (const c of ['crm', 'crm-apk']) expect(await puedeEntrar('u1', c)).toBe(false)
+    })
+
+    it('Transferencias (`transferencias-apk`) se abre con transferencias.entrar, y con ninguna otra', async () => {
+        db.user.findUnique.mockResolvedValue(persona({ porDefecto: ['transferencias.entrar'] }))
+        expect(await puedeEntrar('u1', 'transferencias-apk')).toBe(true)
+        expect(await puedeEntrar('u1', 'delivery-apk')).toBe(false)
+        expect(await puedeEntrar('u1', 'crm-apk')).toBe(false)
+        db.user.findUnique.mockResolvedValue(persona({ porDefecto: ['delivery.entrar', 'crm.entrar', 'aft.entrar'] }))
+        expect(await puedeEntrar('u1', 'transferencias-apk')).toBe(false)
     })
 
     it('delivery, reparto y delivery-apk se abren con la MISMA llave', async () => {
@@ -261,7 +271,7 @@ describe('una cuenta de baja (activo=false): la APK la deja pasar (la cierra res
 describe('entradasDe: las llaves de entrada que se FIRMAN', () => {
     const acceso = (...llaves: string[]) => ({ todo: false, llaves: new Set(llaves) })
 
-    it('son ocho, sin repetir, en el orden del mapa', () => {
+    it('son nueve, sin repetir, en el orden del mapa', () => {
         expect(LLAVES_DE_ENTRADA).toEqual([
             'pedido.entrar',
             'analitics.entrar',
@@ -271,6 +281,7 @@ describe('entradasDe: las llaves de entrada que se FIRMAN', () => {
             'rutas.entrar',
             'avisos.entrar',
             'crm.entrar',
+            'transferencias.entrar',
         ])
     })
 
@@ -294,10 +305,10 @@ describe('entradasDe: las llaves de entrada que se FIRMAN', () => {
     })
 
     it('orden estable (el del mapa) venga como venga, y devuelve una copia', () => {
-        expect(entradasDe(acceso('avisos.entrar', 'aft.entrar', 'pedido.entrar'))).toEqual(['pedido.entrar', 'aft.entrar', 'avisos.entrar'])
+        expect(entradasDe(acceso('transferencias.entrar', 'avisos.entrar', 'aft.entrar', 'pedido.entrar'))).toEqual(['pedido.entrar', 'aft.entrar', 'avisos.entrar', 'transferencias.entrar'])
         const todas = entradasDe({ todo: true, llaves: new Set() })
         todas.push('x')
-        expect(entradasDe({ todo: true, llaves: new Set() })).toHaveLength(8)
+        expect(entradasDe({ todo: true, llaves: new Set() })).toHaveLength(9)
     })
 })
 

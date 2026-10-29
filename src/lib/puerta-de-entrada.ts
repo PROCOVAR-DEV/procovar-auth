@@ -72,6 +72,8 @@ export const LLAVE_DEL_CLIENTE: Readonly<Record<string, string>> = {
     // El CRM: su web (`crm`, flujo callback → exchange) y su APK (`crm-apk`, `/api/auth/token`).
     crm: 'crm.entrar',
     'crm-apk': 'crm.entrar',
+    // Transferencias: sólo su APK (`transferencias-apk`, `/api/auth/token`). La web aún no abre por Accesos.
+    'transferencias-apk': 'transferencias.entrar',
 }
 
 /** Cómo se llama cada una de cara a la persona, para decirle a qué no entra. */
@@ -87,6 +89,7 @@ export const NOMBRE_DEL_CLIENTE: Readonly<Record<string, string>> = {
     'procovar-notify': 'Avisos',
     crm: 'CRM',
     'crm-apk': 'CRM',
+    'transferencias-apk': 'Transferencias',
 }
 
 /**
@@ -112,7 +115,7 @@ export const SIN_LLAVE: readonly string[] = [
 
 /**
  * Las llaves de entrada que Accesos FIRMA (`entradas`): las del mapa, sin repetir (tres
- * clientes abren con `delivery.entrar`) y en el orden del mapa. Son ocho.
+ * clientes abren con `delivery.entrar`) y en el orden del mapa. Son nueve.
  */
 export const LLAVES_DE_ENTRADA: readonly string[] = [...new Set(Object.values(LLAVE_DEL_CLIENTE))]
 
