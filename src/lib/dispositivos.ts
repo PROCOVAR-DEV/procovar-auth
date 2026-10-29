@@ -37,7 +37,6 @@ const MAX_UA = 300;
 /** Recorta y limpia un texto que viene de fuera: sin controles, sin espacios de más, `null` si queda vacío. */
 export function limpiarTexto(valor: unknown, max: number): string | null {
     if (typeof valor !== 'string') return null;
-    // eslint-disable-next-line no-control-regex
     const t = valor.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
     return t ? t.slice(0, max) : null;
 }

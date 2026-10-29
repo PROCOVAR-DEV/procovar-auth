@@ -2,7 +2,7 @@
 -- Nada de lo que ya funciona (sesiones, refresh, login) lee ni escribe esto salvo el reconocimiento de las cabeceras
 -- `X-Aparato-*` en /api/auth/refresh y /api/auth/token, que no puede fallar la petición.
 
-ALTER TABLE "ClientApp" ADD COLUMN IF NOT EXISTS "dispositivosUrl" TEXT;
+ALTER TABLE "client_app" ADD COLUMN IF NOT EXISTS "dispositivosUrl" TEXT;
 
 CREATE TABLE IF NOT EXISTS "dispositivo" (
     "id"             TEXT NOT NULL,
@@ -42,6 +42,6 @@ ALTER TABLE "dispositivo" ADD CONSTRAINT "dispositivo_userId_fkey"
 
 -- El CRM (credencial de servicio `crm`) puede leer y gestionar SOLO los aparatos de su APK (`crm-apk`): la aplicación sale de los
 -- scopes de la credencial (`dispositivos:<clientId>`), no de lo que mande. Idempotente; sin efecto si no existe ese cliente.
-UPDATE "ClientApp"
+UPDATE "client_app"
    SET "scopes" = array_append("scopes", 'dispositivos:crm-apk')
  WHERE "clientId" = 'crm' AND NOT ('dispositivos:crm-apk' = ANY("scopes"));

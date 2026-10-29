@@ -32,6 +32,10 @@ const ACCIONES: Record<string, AccionDescrita> = {
   'user.password': { texto: 'Cambió una contraseña', tipo: 'cambio' },
 
   'session.revoke': { texto: 'Cerró una sesión', tipo: 'acceso' },
+  'dispositivo.nombre': { texto: 'Le puso nombre a un dispositivo', tipo: 'cambio' },
+  'dispositivo.cerrar': { texto: 'Cerró la sesión de un dispositivo', tipo: 'acceso' },
+  'dispositivo.bloquear': { texto: 'Bloqueó un dispositivo', tipo: 'baja' },
+  'dispositivo.desbloquear': { texto: 'Desbloqueó un dispositivo', tipo: 'alta' },
   'session.revokeAll': { texto: 'Cerró todas las sesiones de una persona', tipo: 'acceso' },
   'auth.login': { texto: 'Entró en el sistema', tipo: 'acceso' },
   'auth.logout': { texto: 'Salió del sistema', tipo: 'acceso' },

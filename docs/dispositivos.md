@@ -1,8 +1,9 @@
 # Dispositivos en Accesos — lo que tiene que hacer cada aplicación
 
-**Estado: PROPUESTO (29/10/2026). Todavía NO está en producción.** Este documento es el contrato para las
-aplicaciones con aparatos propios (Reparto, CRM, las que vengan). Cuando Accesos lo tenga desplegado se avisa y se
-pone aquí la fecha. Hasta entonces no hay que cambiar nada en el CRM.
+**Estado (29/10/2026): IMPLEMENTADO Y PROBADO en la rama `feat/dispositivos`; falta DESPLEGAR** (Accesos es el login de todo: no
+se despliega sin orden de Jose; la migración se probó sobre una base nueva con las 26 migraciones y sin desviaciones). Este
+documento es el contrato para las aplicaciones con aparatos propios (Reparto, CRM, las que vengan). Cuando esté en producción se
+avisa y se pone aquí la fecha. Hasta entonces mandar las cabeceras no hace nada (se ignoran sin daño).
 
 ## Para qué
 
@@ -83,8 +84,9 @@ sesión de Accesos, como todo). Reparto ya tiene su sincronización con esos dat
 
 ## Cómo se ve en Accesos
 
-Pantalla **«Dispositivos»** (solo DESARROLLADOR, SUPER ADMIN y ADMINISTRADOR de su sucursal; el administrador de
-sucursal solo ve los de su sucursal), una pestaña por aplicación (`Reparto`, `CRM`, …), con filtro por sucursal y
+Pantalla **«Dispositivos»** (`/dashboard/dispositivos`; en esta primera versión **solo el administrador global**, SUPER ADMIN y
+DESARROLLADOR, como todo el panel `/dashboard`; el ADMINISTRADOR de sucursal, con solo los de su sucursal, queda para después),
+una pestaña por aplicación (Reparto y CRM siempre; las demás cuando tengan aparatos) (`Reparto`, `CRM`, …), con filtro por sucursal y
 persona. Por aparato:
 
 - **Persona** (con su nombre), **sucursal**, **aplicación y versión**, **plataforma**, **equipo**.
@@ -94,6 +96,44 @@ persona. Por aparato:
   resolver / lleva mucho sin subir), *callado* (no se ve desde hace días).
 - Acciones: **ponerle nombre**, **cerrar su sesión** (el aparato deja de renovar y sale), **bloquear** (no vuelve
   a entrar con ese `X-Aparato-Id` hasta que se desbloquee), **Ver actividad**.
+
+## Para las aplicaciones que guardan una ficha local (CRM, Reparto…): leer de Accesos
+
+Accesos es la fuente de la **identidad** del aparato; la aplicación guarda su ficha local con el **mismo `aparatoId`** para sus
+claves foráneas y su trabajo, y lee de Accesos si existe, de quién es, versión, plataforma y si está bloqueado. Por la red
+interna y con credencial de servicio (HMAC, como `/api/service/almacenes`; **sin** el `Bearer` antiguo):
+
+```
+GET /api/service/dispositivos[?app=crm][&sucursal=STG][&desde=<ISO>][&limite=500][&despues=<cursor>]
+→ 200 { dispositivos: [{ aparatoId, userId, app, sucursal, plataforma, version, nombre,
+                          estado: "activo" | "bloqueado", primeraVez, ultimaVez, actualizado }],
+        truncado: boolean, siguiente: string | null, hasta: ISO }
+```
+
+- **La aplicación sale de QUIÉN LLAMA**, no de `?app=`: la credencial de servicio lleva en sus `scopes` una entrada
+  `dispositivos:<clientId>` por aplicación (`dispositivos:crm-apk`). Sin ese scope, 403 `sin_permiso_de_dispositivos`; con `?app=` de otra
+  aplicación, 403 `app_no_permitida` (no una lista vacía); el comodín `*` no cuenta. **El CRM nunca ve un aparato de Reparto.** La
+  migración `20261029160000_dispositivos` pone `dispositivos:crm-apk` a la credencial `crm`.
+- `nombre`: el que le puso un administrador o, si no, el que informó el aparato. `actualizado`: última modificación de la ficha (para `desde=`).
+- **`truncado: true` = hay más**: pedir la siguiente tanda con `despues=<siguiente>`. Una tanda truncada **no** se da por buena.
+- Estados: solo `activo` y `bloqueado`. «Cerrar sesión» no es un estado (el aparato puede volver a entrar); bloquear sí.
+
+**Aviso en vivo (Redis), UN CANAL POR APLICACIÓN**: `procovar:auth:dispositivos:<clientId>` (p. ej. `…:crm-apk`), sin prefijo de ioredis:
+
+```
+{"v":1,"tipo":"dispositivo-cambiado","app":"crm-apk","aparatoId":"<uuid>","estado":"activo"|"bloqueado",
+ "motivo":"bloqueado"|"desbloqueado"|"sesion-cerrada"|"renombrado","tms":<ms>}
+```
+
+Puede perderse (Redis caído, la aplicación reiniciándose): **la fuente de verdad es la lista**; consultarla al arrancar y al reconectar con
+`desde=<último "hasta" visto>`. (El Redis es compartido y sin ACL: el canal separa, no protege; el mensaje solo lleva ids.)
+
+**Importar lo que la aplicación ya tenía** (aparatos anteriores a este registro): `POST /api/service/dispositivos`
+`{ dispositivos: [{ aparatoId, userId, plataforma?, nombre?, version?, sucursal?, primeraVez?, ultimaVez? }] }` (máx. 100),
+idempotente y sin pisar (`creado` | `ya_existia` | `persona_inexistente` | `invalido`); la aplicación es la de la credencial.
+
+**UUID v7 para los nuevos; un id anterior solo si ya existe.** Un `X-Aparato-Id` que no sea v7 y no esté ya registrado no crea nada. Uno
+que YA existe (importado con su id de antes) se sigue aceptando para actualizar su versión y su última vez, y para el bloqueo.
 
 ## Qué guarda Accesos (para que quede dicho)
 
@@ -111,8 +151,9 @@ datos de clientes. La IP y el `User-Agent` ya se guardan hoy en la sesión.
 
 ## Orden de puesta en producción
 
-1. **Accesos** (migración aditiva `dispositivo` + el reconocimiento de las cabeceras en `/refresh` y `/token` +
-   `POST /api/dispositivos/estado` + la pantalla). Es el login de todo: no se despliega sin orden de Jose.
+1. **Accesos** (migración aditiva `dispositivo` + `client_app.dispositivosUrl` + el scope del CRM; el reconocimiento de las cabeceras en
+   `/refresh` y `/token`; `POST /api/dispositivos/estado`; `/api/service/dispositivos`; la pantalla). Es el login de todo: **no se
+   despliega sin orden de Jose**. Rollback: la migración es solo aditiva (tabla y columna nuevas); basta volver a la imagen anterior.
 2. **Reparto** (versión nueva de la APK y el escritorio: `X-Aparato-Id`, estado y su pantalla de actividad).
 3. **CRM**: cuando Amado quiera. Hasta que Accesos esté desplegado, mandar las cabeceras no hace nada (se ignoran).
    Después, los pasos 1 y 2 de arriba; el 3 es opcional.
