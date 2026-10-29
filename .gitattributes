@@ -1,0 +1,6 @@
+# Las herramientas de firma de APK (docker/firma-apk) y las APK de prueba son binarios: ni conversión de finales de línea ni diff.
+# Su SHA256SUMS lo comprueba el Dockerfile, así que un byte cambiado rompe el build.
+docker/firma-apk/apksigner.jar binary
+docker/firma-apk/zipalign binary
+docker/firma-apk/lib64/* binary
+*.apk binary
