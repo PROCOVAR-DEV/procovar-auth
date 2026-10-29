@@ -32,14 +32,19 @@ const ID = '0192f3c4-8a3b-7d0e-9d62-6a1f3b6f2c10';
 describe('las cabeceras del aparato', () => {
     it('lee el id (en minúsculas) y el nombre del equipo', () => {
         const h = new Headers({ 'x-aparato-id': ID.toUpperCase(), 'x-aparato-nombre': '  Samsung   A14 de Palma ' });
-        expect(leerCabecerasDeAparato(h)).toEqual({ aparatoId: ID, equipo: 'Samsung A14 de Palma' });
+        expect(leerCabecerasDeAparato(h)).toEqual({ aparatoId: ID, esV7: true, equipo: 'Samsung A14 de Palma' });
     });
 
-    it('un id que no es un UUID v7 NO registra nada (el aparato sigue funcionando igual); un v4 tampoco', () => {
-        for (const malo of ['', 'abc', '../../etc/passwd', ID + 'x', "'; DROP TABLE dispositivo;--", '0f4c9c1e-8a3b-4d0e-9d62-6a1f3b6f2c10']) {
+    it('un id que no es un UUID NO registra nada (el aparato sigue funcionando igual)', () => {
+        for (const malo of ['', 'abc', '../../etc/passwd', ID + 'x', "'; DROP TABLE dispositivo;--"]) {
             expect(leerCabecerasDeAparato(new Headers({ 'x-aparato-id': malo })).aparatoId).toBeNull();
         }
         expect(leerCabecerasDeAparato(new Headers()).aparatoId).toBeNull();
+    });
+
+    it('un v4 se lee pero NO es v7: solo podrá actualizar un aparato que ya exista (el importado), nunca crear uno', () => {
+        const v4 = leerCabecerasDeAparato(new Headers({ 'x-aparato-id': '0f4c9c1e-8a3b-4d0e-9d62-6a1f3b6f2c10' }));
+        expect(v4).toMatchObject({ aparatoId: '0f4c9c1e-8a3b-4d0e-9d62-6a1f3b6f2c10', esV7: false });
     });
 
     it('el nombre del equipo se limpia y se recorta', () => {

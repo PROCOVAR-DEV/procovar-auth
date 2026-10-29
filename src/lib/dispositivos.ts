@@ -21,6 +21,14 @@ import { _hashDe } from '@/lib/apk-tokens';
  * instalación). `X-Aparato-Id` identifica, no autentica: solo se exige que sea un v7 bien formado. Un v4 no se registra.
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/**
+ * Cualquier UUID bien formado. Solo para lo que YA EXISTE: el aparato que una aplicación importó con su id anterior
+ * (el CRM tenía uno v4, de antes del cambio a v7) sigue identificándose con ese id; uno NUEVO tiene que ser v7.
+ */
+const UUID_CUALQUIERA = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const esUuidV7 = (id: string): boolean => UUID.test(id);
+export const esUuidCualquiera = (id: string): boolean => UUID_CUALQUIERA.test(id);
 
 const MAX_EQUIPO = 80;
 const MAX_ERROR = 200;
@@ -36,14 +44,18 @@ export function limpiarTexto(valor: unknown, max: number): string | null {
 
 export interface CabecerasDeAparato {
     aparatoId: string | null;
+    /** `true` si es un UUID v7: solo con v7 se puede CREAR un aparato; uno que no lo es solo vale si ya existe. */
+    esV7: boolean;
     equipo: string | null;
 }
 
-/** `X-Aparato-Id` (un UUID) y `X-Aparato-Nombre`. Sin id válido no hay registro: el aparato sigue funcionando igual. */
+/** `X-Aparato-Id` (un UUID) y `X-Aparato-Nombre`. Sin id bien formado no hay registro: el aparato sigue funcionando igual. */
 export function leerCabecerasDeAparato(cabeceras: Headers): CabecerasDeAparato {
-    const id = cabeceras.get('x-aparato-id')?.trim() ?? '';
+    const id = (cabeceras.get('x-aparato-id')?.trim() ?? '').toLowerCase();
+    const bien = UUID_CUALQUIERA.test(id);
     return {
-        aparatoId: UUID.test(id) ? id.toLowerCase() : null,
+        aparatoId: bien ? id : null,
+        esV7: bien && UUID.test(id),
         equipo: limpiarTexto(cabeceras.get('x-aparato-nombre'), MAX_EQUIPO),
     };
 }
@@ -173,12 +185,20 @@ export async function registrarDelPar(
     aparato: { ip?: string | null; userAgent?: string | null }
 ): Promise<void> {
     try {
-        const { aparatoId, equipo } = leerCabecerasDeAparato(cabeceras);
+        const { aparatoId, esV7, equipo } = leerCabecerasDeAparato(cabeceras);
         if (!aparatoId) return;
         const t = delTokenRecienFirmado(par.token);
         if (!t) return;
         await conTope(
             (async () => {
+                // Un id que no es v7 NO crea nada: solo vale si el aparato ya estaba (importado con su id de antes).
+                if (!esV7) {
+                    const existe = await prisma.dispositivo.findUnique({
+                        where: { clientId_aparatoId: { clientId: t.azp, aparatoId } },
+                        select: { id: true },
+                    });
+                    if (!existe) return;
+                }
                 const fila = await prisma.refreshToken
                     .findUnique({ where: { tokenHash: _hashDe(par.refresh_token) }, select: { familyId: true } })
                     .catch(() => null);

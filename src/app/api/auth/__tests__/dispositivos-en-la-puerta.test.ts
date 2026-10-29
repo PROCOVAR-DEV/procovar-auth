@@ -79,11 +79,22 @@ describe('POST /api/auth/refresh con X-Aparato-Id', () => {
         })
     })
 
-    it('sin la cabecera, o con una que no es un UUID v7, NO anota nada y la renovación es la de siempre', async () => {
+    it('sin la cabecera, o con una que no es un UUID, NO anota nada y la renovación es la de siempre', async () => {
         expect((await llamar(refresh, { refresh_token: 'a' })).status).toBe(200)
         expect((await llamar(refresh, { refresh_token: 'b' }, { 'x-aparato-id': 'no-soy-un-uuid' })).status).toBe(200)
-        expect((await llamar(refresh, { refresh_token: 'c' }, { 'x-aparato-id': '0f4c9c1e-8a3b-4d0e-9d62-6a1f3b6f2c10' })).status).toBe(200)
         expect(db.dispositivo.upsert).not.toHaveBeenCalled()
+    })
+
+    it('un UUID v4 NUEVO no crea nada (hay que usar v7), pero uno que ya existe (importado) SÍ se actualiza', async () => {
+        const V4 = '0f4c9c1e-8a3b-4d0e-9d62-6a1f3b6f2c10'
+        db.dispositivo.findUnique.mockResolvedValue(null)
+        expect((await llamar(refresh, { refresh_token: 'a' }, { 'x-aparato-id': V4 })).status).toBe(200)
+        expect(db.dispositivo.upsert).not.toHaveBeenCalled()
+
+        db.dispositivo.findUnique.mockResolvedValue({ id: 'd-importado' })
+        expect((await llamar(refresh, { refresh_token: 'b' }, { 'x-aparato-id': V4 })).status).toBe(200)
+        expect(db.dispositivo.upsert).toHaveBeenCalledTimes(1)
+        expect(db.dispositivo.upsert.mock.calls[0][0].where).toEqual({ clientId_aparatoId: { clientId: 'delivery-apk', aparatoId: V4 } })
     })
 
     it('si la tabla de dispositivos falla, la renovación SIGUE (ni 401 ni 500)', async () => {
