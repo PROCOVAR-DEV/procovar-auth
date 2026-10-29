@@ -13,13 +13,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { audit } from '@/lib/audit';
 import { logger } from '@/lib/logger';
 import { requireSystemAdmin } from '@/lib/require-admin';
-import { cerrarFamilia, desdeDondePide } from '@/lib/apk-tokens';
+import { desdeDondePide } from '@/lib/apk-tokens';
 import { pedidoDeOtroSitio } from '@/lib/mismo-origen';
-import { limpiarTexto } from '@/lib/dispositivos';
-import { avisarDeDispositivo, type MotivoDeDispositivo } from '@/lib/eventos-de-dispositivos';
+import { aplicarOrden } from '@/lib/dispositivos-acciones';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,55 +53,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     try {
         const fila = await prisma.dispositivo.findUnique({
             where: { id },
-            select: { id: true, clientId: true, aparatoId: true, userId: true, familyId: true, bloqueadoAt: true, nombre: true },
+            select: { id: true, clientId: true, aparatoId: true, userId: true, familyId: true, bloqueadoAt: true },
         });
         if (!fila) return json({ error: 'not_found' }, 404);
 
-        let motivo: MotivoDeDispositivo;
-        let bloqueadoAt = fila.bloqueadoAt;
-
-        switch (orden.data.accion) {
-            case 'nombre': {
-                const nombre = limpiarTexto(orden.data.nombre, 80);
-                await prisma.dispositivo.update({ where: { id }, data: { nombre } });
-                motivo = 'renombrado';
-                break;
-            }
-            case 'cerrar': {
-                // Sin cadena de refresh (el aparato nunca renovó con cabeceras) no hay nada que cerrar: se dice, no se inventa.
-                if (!fila.familyId) return json({ error: 'sin_sesion_que_cerrar' }, 409);
-                await cerrarFamilia(fila.familyId);
-                motivo = 'sesion-cerrada';
-                break;
-            }
-            case 'bloquear': {
-                bloqueadoAt = new Date();
-                await prisma.dispositivo.update({ where: { id }, data: { bloqueadoAt, bloqueadoPor: admin.user.id } });
-                // Primero queda bloqueado (la renovación ya lo rechaza); luego se cierra la cadena que tenga viva.
-                if (fila.familyId) await cerrarFamilia(fila.familyId);
-                motivo = 'bloqueado';
-                break;
-            }
-            case 'desbloquear': {
-                bloqueadoAt = null;
-                await prisma.dispositivo.update({ where: { id }, data: { bloqueadoAt: null, bloqueadoPor: null } });
-                motivo = 'desbloqueado';
-                break;
-            }
-        }
-
-        const aparato = desdeDondePide(req.headers);
-        audit({
-            action: `dispositivo.${orden.data.accion}`,
-            userId: admin.user.id,
-            clientId: fila.clientId,
-            resource: fila.aparatoId,
-            ip: aparato.ip,
-            userAgent: aparato.userAgent,
-            meta: { dispositivoId: id, persona: fila.userId },
-        });
-
-        await avisarDeDispositivo({ clientId: fila.clientId, aparatoId: fila.aparatoId, bloqueadoAt }, motivo);
+        const r = await aplicarOrden(fila, orden.data, { id: admin.user.id, via: 'panel' }, desdeDondePide(req.headers));
+        if (!r.ok) return json({ error: r.error }, r.estado);
         return json({ ok: true });
     } catch (e) {
         logger.error('[admin/dispositivos] error', { error: (e as Error).message });

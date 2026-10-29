@@ -132,6 +132,19 @@ Puede perderse (Redis caído, la aplicación reiniciándose): **la fuente de ver
 `{ dispositivos: [{ aparatoId, userId, plataforma?, nombre?, version?, sucursal?, primeraVez?, ultimaVez? }] }` (máx. 100),
 idempotente y sin pisar (`creado` | `ya_existia` | `persona_inexistente` | `invalido`); la aplicación es la de la credencial.
 
+**Gestionar SUS aparatos desde la propia aplicación** (el CRM conserva sus pantallas de aparatos; los datos viven en Accesos). Mismo
+alcance por credencial (`dispositivos:<clientId>`); un aparato de OTRA aplicación da 404 (no se cuenta qué aparatos hay):
+
+```
+POST /api/service/dispositivos/{aparatoId}/bloquear      cierra su sesión Y no vuelve a entrar con ese X-Aparato-Id
+POST /api/service/dispositivos/{aparatoId}/desbloquear   le deja volver
+POST /api/service/dispositivos/{aparatoId}/nombre        { "nombre": "Samsung de Palma" | null }   (1–80 car.; vacío o null = quitarlo)
+→ 200 { ok: true, estado: "activo" | "bloqueado" }   · 400 · 403 · 404
+```
+
+Hace EXACTAMENTE lo que haría un administrador en el panel (cierra la cadena de refresh, queda en la auditoría con el servicio que lo pidió
+y avisa por el canal de su aplicación con motivo `bloqueado` / `desbloqueado` / `renombrado`).
+
 **UUID v7 para los nuevos; un id anterior solo si ya existe.** Un `X-Aparato-Id` que no sea v7 y no esté ya registrado no crea nada. Uno
 que YA existe (importado con su id de antes) se sigue aceptando para actualizar su versión y su última vez, y para el bloqueo.
 
