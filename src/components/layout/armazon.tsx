@@ -109,6 +109,7 @@ export function Armazon({ persona, children }: { persona: Persona; children: Rea
         { href: "/dashboard/permissions", icono: "lucide:shield-check", texto: t("rail.permisos"), soloGlobal: true },
         { href: "/dashboard/auditoria", icono: "lucide:scroll-text", texto: t("rail.auditoria"), soloGlobal: true },
         { href: "/dashboard/dispositivos", icono: "lucide:smartphone", texto: t("rail.dispositivos"), soloGlobal: true },
+        { href: "/dashboard/firma-de-apk", icono: "lucide:file-signature", texto: t("rail.firmaApk"), soloGlobal: true },
         { href: "/apikeys", icono: "lucide:key-round", texto: t("rail.aplicaciones"), soloGlobal: true },
         { href: "/profile", icono: "lucide:circle-user", texto: t("rail.miCuenta") },
     ];

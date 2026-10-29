@@ -52,6 +52,26 @@ RUN apk add --no-cache tini \
  && mkdir -p /app/logs \
  && chown -R nextjs:nodejs /app
 
+# Firma de las APK (docs/firma-de-apk.md): un JRE y las dos herramientas de Android, apksigner y zipalign.
+#
+#   · JRE: `openjdk21-jre-headless` de Alpine (lleva `keytool`, que usa el script de importación). Sin JDK, sin Android SDK.
+#     Alpine no permite fijar la versión menor sin que el build se rompa el día que la retire: se fija la MAYOR (21).
+#   · apksigner.jar y zipalign: build-tools 35.0.0, VERSIONADOS en `docker/firma-apk/` con su SHA256SUMS (se comprueba aquí:
+#     un fichero tocado rompe el build). No se descargan de dl.google.com a propósito: el build no depende de un tercero
+#     y la versión es siempre la misma.
+#   · TRAMPA DE ALPINE: `zipalign` es un binario de glibc y esta imagen es musl. Funciona con `gcompat` (probado) más su
+#     propia libc++ (docker/firma-apk/lib64). Si algún día deja de arrancar, `apksigner` seguiría firmando, pero las APK sin alinear
+#     fallarían (la firma avisa con «herramienta_no_disponible»).
+#   · Tamaño: el JRE añade unos 100-200 MB a la imagen. Es el coste de firmar dentro de Accesos (decisión de Jose, 29/10/2026).
+RUN apk add --no-cache openjdk21-jre-headless gcompat
+COPY docker/firma-apk /opt/firma-apk
+RUN cd /opt/firma-apk \
+ && sha256sum -c SHA256SUMS \
+ && chmod 0755 zipalign \
+ && printf '#!/bin/sh\nexec java -Xmx512m -jar /opt/firma-apk/apksigner.jar "$@"\n' > /usr/local/bin/apksigner \
+ && printf '#!/bin/sh\nexec /opt/firma-apk/zipalign "$@"\n' > /usr/local/bin/zipalign \
+ && chmod 0755 /usr/local/bin/apksigner /usr/local/bin/zipalign
+
 # Next.js standalone bundle (already includes only the prod deps it traces)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static     ./.next/static

@@ -619,3 +619,44 @@ model DispositivoPersona {
   @@index([userId])
   @@map("dispositivo_persona")
 }
+
+/// LA CLAVE DE FIRMA DE LAS APK DE LA CASA (docs/firma-de-apk.md). UNA sola fila (`id = 'casa'`).
+/// `cifrado` es el keystore y sus dos contraseñas, juntos, cifrados con AES-256-GCM (clave derivada con HKDF de SERVICE_AUTH_SECRET):
+/// nunca se lee fuera de `lib/firma-apk-clave.ts` y nunca se devuelve. Lo demás (huella, sujeto, validez) es PÚBLICO: es lo que dice el
+/// certificado de cualquier APK ya firmada, y es lo que enseña la pantalla.
+model ClaveDeFirmaApk {
+  id          String   @id
+  /// SHA-256 del certificado, en hex minúsculas: lo que Android compara para dejar instalar una versión nueva encima de la vieja.
+  huella      String
+  /// El sujeto del certificado (`CN=…, O=…`).
+  sujeto      String
+  validoDesde DateTime
+  validoHasta DateTime
+  alias       String
+  /// Versión del formato de `cifrado` (1 = [iv 12][etiqueta 16][texto cifrado]).
+  formato     Int      @default(1)
+  cifrado     Bytes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("firma_apk_clave")
+}
+
+/// CADA APK FIRMADA con la clave de la casa (la pantalla «Firma de las APK»). Solo lo que se firmó con éxito y se verificó;
+/// los rechazos quedan en la auditoría (`apk.firmar_rechazada`). `userId` sin relación a propósito: el historial sobrevive a quien firmó.
+model FirmaApk {
+  id            String   @id @default(cuid())
+  clientId      String
+  paquete       String
+  versionName   String?
+  versionCode   String?
+  /// SHA-256 del fichero que se subió y del que se entregó: con ellos se reconoce una APK concreta meses después.
+  sha256Entrada String
+  sha256Salida  String
+  tamano        Int
+  userId        String
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("firma_apk")
+}

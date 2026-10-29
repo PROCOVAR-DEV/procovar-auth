@@ -8,7 +8,11 @@ import { logger } from '@/lib/logger';
 
 const SIN_CACHE = { 'Cache-Control': 'no-store' };
 
-export function pedidoDeOtroSitio(req: NextRequest): NextResponse | null {
+/**
+ * `tiposAdmitidos`: por defecto solo JSON. La subida de una APK manda el fichero tal cual (`application/octet-stream`):
+ * tampoco es un tipo que un formulario de otro sitio pueda enviar sin pasar por CORS, que es lo que se busca.
+ */
+export function pedidoDeOtroSitio(req: NextRequest, tiposAdmitidos: readonly string[] = ['application/json']): NextResponse | null {
     let propio: string;
     try {
         propio = new URL(process.env.APP_URL ?? 'http://localhost:3500').origin;
@@ -22,7 +26,7 @@ export function pedidoDeOtroSitio(req: NextRequest): NextResponse | null {
         return NextResponse.json({ error: 'origin_no_permitido' }, { status: 403, headers: SIN_CACHE });
     }
     const tipo = req.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
-    if (tipo !== 'application/json') {
+    if (!tipo || !tiposAdmitidos.includes(tipo)) {
         return NextResponse.json({ error: 'unsupported_media_type' }, { status: 415, headers: SIN_CACHE });
     }
     return null;
