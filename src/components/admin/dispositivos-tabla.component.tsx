@@ -197,8 +197,10 @@ export function DispositivosTabla({
                                                     {[f.plataforma, f.version ? `versión ${f.version}` : null].filter(Boolean).join(" · ") || "Sin identificar"}
                                                 </div>
                                                 {f.tambienEn.length > 0 && (
-                                                    <div className="text-xs text-pv-tinta-suave" title="Es el mismo aparato: no está duplicado.">
-                                                        También en {f.tambienEn.join(", ")}
+                                                    <div className="mt-0.5 flex flex-wrap gap-1" title="Es el mismo aparato: no está duplicado.">
+                                                        {f.tambienEn.map((n) => (
+                                                            <span key={n} className="pv-etiqueta pv-etiqueta-azul">{n}</span>
+                                                        ))}
                                                     </div>
                                                 )}
                                             </div>

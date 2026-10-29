@@ -1,6 +1,6 @@
 /** Lo que la pantalla «Dispositivos» enseña: pestañas, marcas, el enlace a «Ver actividad» (solo http/https) y el resumen. */
 import { describe, it, expect } from 'vitest'
-import { aFila, contarMarcas, nombreDeApp, pestanas, urlDeActividad, type DispositivoDeBD } from '../dispositivos-vista'
+import { aFila, aFilaDeAparato, contarMarcas, nombreDeApp, pestanas, urlDeActividad, type DispositivoDeBD } from '../dispositivos-vista'
 
 const AHORA = new Date('2026-10-29T18:00:00Z')
 const hace = (h: number) => new Date(AHORA.getTime() - h * 3_600_000)
@@ -81,5 +81,23 @@ describe('la fila', () => {
         const filas = [D, { ...D, rechazados: 2 }, { ...D, vistoAt: hace(500) }, { ...D, bloqueadoAt: hace(1) }, { ...D, estadoAt: null }]
             .map((d) => aFila(d, personas, null, AHORA))
         expect(contarMarcas(filas)).toEqual({ funciona: 1, atascado: 1, callado: 1, bloqueado: 1, sin_estado: 1 })
+    })
+})
+
+describe('la pestaña «Todos»: el aparato una vez, con una etiqueta por aplicación', () => {
+    const { id: _i, aparatoId: _a, plataforma: _p, equipo: _e, nombre: _n, ...app } = D
+    it('une Reparto y el CRM del mismo aparato y junta las cuentas sin repetir', () => {
+        const nombres = new Map([['u1', 'Maikel'], ['u2', 'Dainel']])
+        const f = aFilaDeAparato({
+            id: 'dis1', aparatoId: D.aparatoId, nombre: null, equipo: 'Samsung A14', plataforma: 'Android', vistoAt: hace(1),
+            apps: [
+                { ...app, clientId: 'crm-apk', version: '2.3.1', personas: [{ userId: 'u1', vistoAt: hace(5) }] },
+                { ...app, clientId: 'delivery-apk', personas: [{ userId: 'u1', vistoAt: hace(2) }, { userId: 'u2', vistoAt: hace(3) }], rechazados: 2 },
+            ],
+        }, nombres, AHORA)
+        expect(f.nombre).toBe('Samsung A14')
+        expect(f.apps.map((a) => [a.nombre, a.marca])).toEqual([['CRM', 'funciona'], ['Reparto', 'atascado']])
+        expect(f.cuentas.map((c) => c.persona)).toEqual(['Maikel', 'Dainel'])
+        expect(f.cuentas[0].app).toBe('Reparto') // la vez más reciente de Maikel fue en Reparto
     })
 })

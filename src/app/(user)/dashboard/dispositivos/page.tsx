@@ -3,12 +3,15 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { DispositivosTabla } from "@/components/admin/dispositivos-tabla.component";
-import { aFila, pestanas } from "@/lib/dispositivos-vista";
+import { DispositivosTodos } from "@/components/admin/dispositivos-todos.component";
+import { aFila, aFilaDeAparato, pestanas } from "@/lib/dispositivos-vista";
 
 export const dynamic = "force-dynamic";
 
 /** Cuántos aparatos se traen por aplicación. Sobra: hay decenas. Si algún día se pasa, se AVISA (`truncada`). */
 const TOPE = 500;
+/** La pestaña que junta todas las aplicaciones. */
+const TODOS = "todos";
 
 /**
  * Los dispositivos de todas las aplicaciones, una pestaña por aplicación (`docs/dispositivos.md`).
@@ -25,9 +28,36 @@ export default async function DispositivosPage({ searchParams }: { searchParams:
     const filtros = await searchParams;
 
     const conAparatos = await prisma.dispositivoApp.groupBy({ by: ["clientId"], _count: { _all: true } });
-    const tabs = pestanas(conAparatos.map((c) => c.clientId));
-    const app = tabs.some((t) => t.clientId === filtros.app) ? (filtros.app as string) : tabs[0].clientId;
+    const tabs = [{ clientId: TODOS, nombre: "Todos" }, ...pestanas(conAparatos.map((c) => c.clientId))];
+    const app = tabs.some((t) => t.clientId === filtros.app) ? (filtros.app as string) : TODOS;
     const sucursal = filtros.sucursal?.trim().toUpperCase() || "";
+
+    // «Todos»: cada aparato UNA vez, con una etiqueta por aplicación (Reparto, CRM…).
+    if (app === TODOS) {
+        const aparatos = await prisma.dispositivo.findMany({
+            where: sucursal ? { apps: { some: { sucursal } } } : {},
+            orderBy: { vistoAt: "desc" },
+            take: TOPE + 1,
+            include: { apps: { include: { personas: true } } },
+        });
+        const hay = aparatos.length > TOPE;
+        const vistos = hay ? aparatos.slice(0, TOPE) : aparatos;
+        const quienes = await prisma.user.findMany({
+            where: { id: { in: [...new Set(vistos.flatMap((a) => a.apps.flatMap((x) => x.personas.map((p) => p.userId))))] } },
+            select: { id: true, name: true },
+        });
+        const nombresTodos = new Map(quienes.map((p) => [p.id, p.name]));
+        const ahoraTodos = new Date();
+        return (
+            <DispositivosTodos
+                pestanas={tabs}
+                todos={TODOS}
+                filas={vistos.map((a) => aFilaDeAparato(a, nombresTodos, ahoraTodos))}
+                truncada={hay}
+                tope={TOPE}
+            />
+        );
+    }
 
     const [filas, sucursales, plantilla] = await Promise.all([
         prisma.dispositivoApp.findMany({

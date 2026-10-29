@@ -137,3 +137,65 @@ export function contarMarcas(filas: readonly Pick<FilaDeDispositivo, 'marca'>[])
     for (const f of filas) c[f.marca]++;
     return c;
 }
+
+
+/** La pestaña «Todos»: el aparato UNA vez, con una etiqueta por cada aplicación en la que está. */
+export interface EtiquetaDeApp {
+    clientId: string;
+    nombre: string;
+    marca: Marca;
+    version: string | null;
+    sucursal: string | null;
+    vistoAt: string;
+}
+
+export interface FilaDeAparato {
+    id: string;
+    aparatoId: string;
+    nombre: string | null;
+    plataforma: string | null;
+    vistoAt: string;
+    apps: EtiquetaDeApp[];
+    /** Todas las cuentas que entraron en el aparato, en cualquier aplicación, la más reciente primero y sin repetir. */
+    cuentas: { persona: string; app: string; vistoAt: string }[];
+}
+
+export interface AparatoDeBD {
+    id: string;
+    aparatoId: string;
+    nombre: string | null;
+    equipo: string | null;
+    plataforma: string | null;
+    vistoAt: Date;
+    apps: (Omit<DispositivoDeBD, 'id' | 'aparatoId' | 'plataforma' | 'equipo' | 'nombre' | 'tambienEn' | 'personas'> & {
+        personas?: { userId: string; vistoAt: Date }[];
+    })[];
+}
+
+export function aFilaDeAparato(a: AparatoDeBD, personas: ReadonlyMap<string, string>, ahora: Date = new Date()): FilaDeAparato {
+    const apps = [...a.apps].sort((x, y) => x.clientId.localeCompare(y.clientId));
+    const vistas = new Map<string, { persona: string; app: string; vistoAt: Date }>();
+    for (const app of apps) {
+        for (const p of app.personas ?? []) {
+            const persona = personas.get(p.userId) ?? 'Persona dada de baja';
+            const prev = vistas.get(p.userId);
+            if (!prev || prev.vistoAt < p.vistoAt) vistas.set(p.userId, { persona, app: nombreDeApp(app.clientId), vistoAt: p.vistoAt });
+        }
+    }
+    return {
+        id: a.id,
+        aparatoId: a.aparatoId,
+        nombre: a.nombre ?? a.equipo,
+        plataforma: a.plataforma,
+        vistoAt: a.vistoAt.toISOString(),
+        apps: apps.map((d) => ({
+            clientId: d.clientId,
+            nombre: nombreDeApp(d.clientId),
+            marca: marcaDelDispositivo(d, ahora),
+            version: d.version,
+            sucursal: d.sucursal,
+            vistoAt: d.vistoAt.toISOString(),
+        })),
+        cuentas: [...vistas.values()].sort((x, y) => y.vistoAt.getTime() - x.vistoAt.getTime()).map((c) => ({ ...c, vistoAt: c.vistoAt.toISOString() })),
+    };
+}
