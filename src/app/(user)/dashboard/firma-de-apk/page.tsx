@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { puedeFirmarApk } from "@/lib/permiso-de-firma";
 import { auth } from "@/lib/auth";
 import { datosPublicos, HUELLA_DE_LA_CASA } from "@/lib/firma-apk-clave";
 import { APPS_DE_FIRMA } from "@/lib/firma-apk-apps";
@@ -21,6 +22,8 @@ export default async function FirmaDeApkPage() {
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user) redirect("/");
     if (!session.user.isSystemAdmin) redirect("/profile");
+    // Hace falta el permiso `auth.firma_apk` (se reparte a los roles desde Accesos); el endpoint de firma lo exige también.
+    if (!(await puedeFirmarApk(session.user.id))) redirect("/profile");
 
     const [clave, firmas] = await Promise.all([
         datosPublicos(),

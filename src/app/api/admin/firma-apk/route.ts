@@ -18,6 +18,7 @@ import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 import { audit } from '@/lib/audit';
 import { requireSystemAdmin } from '@/lib/require-admin';
+import { puedeFirmarApk } from '@/lib/permiso-de-firma';
 import { pedidoDeOtroSitio } from '@/lib/mismo-origen';
 import { desdeDondePide } from '@/lib/apk-tokens';
 import { appDeFirma } from '@/lib/firma-apk-apps';
@@ -41,6 +42,12 @@ export async function POST(req: NextRequest) {
 
     const admin = await requireSystemAdmin();
     if (admin instanceof NextResponse) return admin;
+    // Además hace falta el permiso `auth.firma_apk` (Jose lo reparte a los roles desde Accesos), exigido aquí y no solo en el menú.
+    if (!(await puedeFirmarApk(admin.user.id))) {
+        const quien = desdeDondePide(req.headers);
+        audit({ action: 'apk.firmar_denegada', userId: admin.user.id, ip: quien.ip, userAgent: quien.userAgent, meta: { motivo: 'sin_permiso' } });
+        return json({ error: 'forbidden', mensaje: 'No tienes el permiso para firmar APK.' }, 403);
+    }
 
     const clientId = req.headers.get('x-firma-app') ?? '';
     const app = appDeFirma(clientId);

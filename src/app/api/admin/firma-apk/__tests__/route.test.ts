@@ -17,9 +17,11 @@ const m = vi.hoisted(() => ({
     audit: vi.fn(),
     crear: vi.fn(),
     almacen: vi.fn(),
+    puede: vi.fn(),
     huella: { valor: '' },
 }));
 vi.mock('@/lib/require-admin', () => ({ requireSystemAdmin: m.admin }));
+vi.mock('@/lib/permiso-de-firma', () => ({ puedeFirmarApk: m.puede }));
 vi.mock('@/lib/audit', () => ({ audit: m.audit }));
 vi.mock('@/lib/prisma', () => ({ prisma: { firmaApk: { create: m.crear } } }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
@@ -66,6 +68,7 @@ describe.skipIf(!herramientas().completas)('la ruta de firma', () => {
     beforeEach(async () => {
         vi.clearAllMocks();
         m.admin.mockResolvedValue(ADMIN);
+        m.puede.mockResolvedValue(true);
         m.crear.mockResolvedValue({});
         m.almacen.mockResolvedValue({
             huella: juguete.huella,
@@ -155,6 +158,16 @@ describe.skipIf(!herramientas().completas)('la ruta de firma', () => {
         expect(r.status).toBe(403);
         expect(m.almacen).not.toHaveBeenCalled();
         expect(m.crear).not.toHaveBeenCalled();
+    });
+
+    it('un administrador global SIN el permiso auth.firma_apk tampoco firma: 403, auditado y sin tocar la clave', async () => {
+        m.puede.mockResolvedValue(false)
+        const r = await POST(pedido(reparto))
+        expect(r.status).toBe(403)
+        expect(m.puede).toHaveBeenCalledWith('u-admin')
+        expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'apk.firmar_denegada', userId: 'u-admin' }))
+        expect(m.almacen).not.toHaveBeenCalled()
+        expect(m.crear).not.toHaveBeenCalled()
     });
 
     it('desde otro origen: 403; con Content-Type de formulario o JSON: 415', async () => {

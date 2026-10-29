@@ -148,6 +148,8 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
   e('auth.personas',     'Vistas', 'auth', 'Ver Personas', 'View People'),
   e('auth.roles',        'Vistas', 'auth', 'Ver Roles y permisos', 'View Roles and permissions'),
   e('auth.auditoria',    'Vistas', 'auth', 'Ver Auditoría', 'View the audit log'),
+  // Firmar APK con la clave de la casa (pantalla «Firma de las APK»). NO se concede por código: se reparte a los roles desde Roles y permisos.
+  e('auth.firma_apk',    'Acciones', 'auth', 'Firmar APK con la clave de la casa', 'Sign APKs with the house key'),
   e('auth.aplicaciones', 'Vistas', 'auth', 'Ver Aplicaciones', 'View Applications'),
 
   // ══ Accesos (esta misma aplicación) ══════════════════════════════════════
