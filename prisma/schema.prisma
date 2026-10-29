@@ -14,9 +14,9 @@ datasource db {
 }
 
 model User {
-  id            String         @id @default(cuid())
-  name          String
-  email         String         @unique
+  id             String  @id @default(cuid())
+  name           String
+  email          String  @unique
   /// Nombre de usuario, para entrar sin correo.
   ///
   /// En PEDIDO la gente entra con `yasmani`, `claudia.hab`, `rene`… y muchos no
@@ -26,11 +26,11 @@ model User {
   /// El correo sigue siendo obligatorio porque better-auth lo usa como clave de
   /// la cuenta; a quien no tenga se le pone uno interno (`usuario@procovar.local`)
   /// que no recibe nada y que nadie necesita saberse.
-  username      String?        @unique
-  emailVerified Boolean
-  image         String?
-  isSystemAdmin Boolean        @default(false)
-  phone         String?
+  username       String? @unique
+  emailVerified  Boolean
+  image          String?
+  isSystemAdmin  Boolean @default(false)
+  phone          String?
   /// El rol que se le dio al abrir la cuenta.
   ///
   /// Vive en la persona y no solo en sus membresías porque la cuenta se abre SIN
@@ -41,8 +41,8 @@ model User {
   /// Es el que se hereda al entrar en una sucursal. Si algún día alguien tiene que
   /// llevar un rol distinto en una sucursal concreta, eso se cambia en la sucursal,
   /// que es donde se ve a quién afecta.
-  defaultRoleId String?
-  defaultRole   Role?          @relation(fields: [defaultRoleId], references: [id], onDelete: SetNull)
+  defaultRoleId  String?
+  defaultRole    Role?   @relation(fields: [defaultRoleId], references: [id], onDelete: SetNull)
   /// El código con el que esta persona vende: `andy.almanza`.
   ///
   /// Vive en la PERSONA y no en una tabla aparte porque en la operación real vendedor
@@ -51,13 +51,13 @@ model User {
   /// emparejarlos —y a esperar al primer pedido de alguien para saber quién era—.
   ///
   /// Nulo en quien no vende: un administrador o un operador no tienen código.
-  codigoVendedor String?       @unique
+  codigoVendedor String? @unique
 
   /// Si sigue en la organización.
   ///
   /// Quien se va NO se borra: sus pedidos siguen colgando de él —2.210 sólo de una de
   /// las bajas— y borrarlo los dejaría sin dueño. Se marca y desaparece de las listas.
-  activo        Boolean        @default(true)
+  activo Boolean @default(true)
 
   /// Quién lo supervisa, cuando lo tiene.
   ///
@@ -67,17 +67,19 @@ model User {
   ///
   /// Hoy esta relación vive en la configuración de Analytics, escrita a mano. Aquí
   /// queda donde se puede consultar y donde ya está la persona.
-  supervisorId  String?
-  supervisor    User?          @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
-  supervisados  User[]         @relation("Supervision")
+  supervisorId String?
+  supervisor   User?   @relation("Supervision", fields: [supervisorId], references: [id], onDelete: SetNull)
+  supervisados User[]  @relation("Supervision")
 
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  members       Member[]
-  invitations   Invitation[]
-  refreshTokens RefreshToken[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  sessions          Session[]
+  accounts          Account[]
+  members           Member[]
+  invitations       Invitation[]
+  refreshTokens     RefreshToken[]
+  dispositivos      DispositivoApp[]
+  usosDeDispositivo DispositivoPersona[]
 
   @@index([codigoVendedor])
   @@index([supervisorId])
@@ -117,24 +119,24 @@ model Session {
 /// diccionario contra el que encarecer el intento — y esto se comprueba en cada
 /// renovación de cada aparato.
 model RefreshToken {
-  id        String    @id @default(cuid())
+  id          String    @id @default(cuid())
   /// sha256 (hex) del token que se le dio al aparato.
-  tokenHash String    @unique
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// La sesión de better-auth que abrió este aparato. Revocarla desde el panel
   /// cierra la APK en la siguiente renovación, o sea como mucho en 15 minutos.
-  sessionId String?
+  sessionId   String?
   /// La cadena de renovaciones que arrancó con un acceso. Sirve para cerrar UN
   /// aparato (logout) sin tocar los demás; la reutilización, en cambio, se lleva
   /// por delante la cuenta entera.
-  familyId  String
+  familyId    String
   /// Qué aplicación lo pidió, para la auditoría: "delivery-apk".
-  clientId  String?
-  expiresAt DateTime
+  clientId    String?
+  expiresAt   DateTime
   /// Cuándo se gastó. No nulo = ya se canjeó: si vuelve, es robo.
-  usedAt    DateTime?
-  revokedAt DateTime?
+  usedAt      DateTime?
+  revokedAt   DateTime?
   /// Cuándo se concedió LA gracia de esta fila. La ventana de gracia deja que un
   /// refresh ya gastado valga unos segundos más —una respuesta que se perdió por
   /// el camino no es un robo—, pero eso vale UNA vez y no una por intento: cada
@@ -144,10 +146,10 @@ model RefreshToken {
   /// `usedAt`, que es lo único que aguanta cinco peticiones a la vez.
   graceUsedAt DateTime?
   /// El que salió al canjear este. Deja ver la cadena entera en una auditoría.
-  replacedBy String?
-  ip        String?
-  userAgent String?
-  createdAt DateTime  @default(now())
+  replacedBy  String?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
 
   @@index([userId])
   @@index([familyId])
@@ -196,9 +198,9 @@ model Verification {
 /// ahí en vez de teclearla para que todos cobren con la MISMA.
 model TasaCambio {
   /// El CÓDIGO de la sucursal (CAM, HAB, STG…), que es la clave que cruza todo.
-  codigo    String   @id
+  codigo     String   @id
   /// Cuántos CUP vale un USD.
-  cupPorUsd Float
+  cupPorUsd  Float
   /// La TARIFA BASE de esa sucursal, en CUP por km y por kg.
   ///
   /// Es el otro número con el que Entrega cobra un domicilio: el importe es
@@ -207,42 +209,42 @@ model TasaCambio {
   /// los pedidos que se meten a mano— se invente una fórmula propia.
   tarifaBase Float?
   /// De dónde salió: "entrega", "manual", el nombre de quien la puso.
-  fuente    String?
+  fuente     String?
   /// Cuándo se trajo. Una tasa sin saber de cuándo es no se puede usar para cobrar: en
   /// Cuba se mueve a diario y un importe calculado con la de la semana pasada está mal
   /// sin que el número lo diga.
-  traidoAt  DateTime @default(now())
-  updatedAt DateTime @updatedAt @default(now())
+  traidoAt   DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
 
   @@index([traidoAt])
 }
 
 model Organization {
-  id          String       @id @default(cuid())
-  name        String
-  slug        String       @unique
-  logo        String?
-  metadata    String?
+  id       String  @id @default(cuid())
+  name     String
+  slug     String  @unique
+  logo     String?
+  metadata String?
 
   /// El código con el que TODOS los sistemas se refieren a esta sucursal: CAM, STG,
   /// HAB… Es la clave que ya cruza PEDIDO (`Sucursal.codigo`), delivery
   /// (`Branch.externalId`), Rutas (`sucursal.codigo`) y el consolidado de Parranda.
   /// Existía en los cuatro por separado y en ninguno como fuente.
-  codigo      String?      @unique
+  codigo String? @unique
 
   /// Si la sucursal opera. Cerrarla no la borra: sus pedidos, rutas e histórico
   /// siguen colgando de ella.
-  activa      Boolean      @default(true)
+  activa Boolean @default(true)
 
   /// Todas están en Cuba hoy, pero los cálculos de jornada y de "qué día es este
   /// fichero GPS" dependen de esto, y darlo por hecho es lo que hace que un informe
   /// salga corrido una hora sin que nadie sepa por qué.
-  timezone    String       @default("America/Havana")
+  timezone String @default("America/Havana")
 
-  telefono    String?
-  direccion   String?
-  latitud     Float?
-  longitud    Float?
+  telefono  String?
+  direccion String?
+  latitud   Float?
+  longitud  Float?
 
   /// Los ALMACENES de esta sucursal. Ver el modelo `Almacen`.
   ///
@@ -250,7 +252,7 @@ model Organization {
   /// dando por hecho que cada sucursal tiene uno. No es cierto: una sucursal puede
   /// tener varios, y con un solo juego de campos el segundo no cabe. Quien lo
   /// necesitara acabaría metiéndolo en la dirección del primero.
-  almacenes   Almacen[]
+  almacenes Almacen[]
 
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -277,19 +279,19 @@ model Member {
 }
 
 model Invitation {
-  id                 String       @id @default(cuid())
-  organizationId     String
-  email              String
-  role               String
-  status             String
-  tokenHash          String?
-  inviterId          String
-  expiresAt          DateTime
-  createdAt          DateTime     @default(now())
-  acceptedAt         DateTime?
-  roleId             String?
-  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  inviter            User         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  organizationId String
+  email          String
+  role           String
+  status         String
+  tokenHash      String?
+  inviterId      String
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  acceptedAt     DateTime?
+  roleId         String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inviter        User         @relation(fields: [inviterId], references: [id], onDelete: Cascade)
 
   @@map("invitation")
 }
@@ -318,6 +320,9 @@ model ClientApp {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   apiKeys             ApiKey[]
+  /// Dirección de «Ver actividad» de un aparato en la propia aplicación, con el hueco `{aparatoId}`
+  /// (p. ej. `https://crm.procovar.cloud/dispositivos/{aparatoId}`). Nula = esa aplicación no tiene detalle.
+  dispositivosUrl     String?
 
   @@map("client_app")
 }
@@ -325,7 +330,6 @@ model ClientApp {
 // TenantDomain también se fue: servía para que cada propietario de
 // alojamientos pusiera su propio dominio como destino de vuelta del login. Las
 // aplicaciones de Procovar son cuatro y sus dominios están en client_app.
-
 
 /// API key for human/script access. The plaintext key is shown once on
 /// creation and then only its argon2id hash is stored.
@@ -490,7 +494,6 @@ model TermsAcceptance {
   @@map("terms_acceptances")
 }
 
-
 /// Un almacén: de dónde sale la mercancía.
 ///
 /// No es lo mismo que la sucursal, y por eso es una tabla y no unos campos dentro: el
@@ -500,9 +503,9 @@ model TermsAcceptance {
 /// Vive aquí y no sólo en delivery (`SavedOrigin`) porque es el dato con el que se
 /// cobra: si esa aplicación se apaga, se pierde.
 model Almacen {
-  id        String       @id @default(cuid())
-  orgId     String
-  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   nombre    String
   direccion String?
@@ -514,17 +517,100 @@ model Almacen {
   /// principal. Es de la SUCURSAL: el «2» es PV CAMAGUEY en Camagüey y AURORA en Santiago, por
   /// eso la unicidad es (sucursal, código). Se rellena desde la pantalla de Almacenes de Reparto.
   /// Null = sin código todavía (Postgres no cuenta los nulos en un índice único).
-  codigo    String?
+  codigo String?
 
   /// El que se usa cuando nadie dice cuál. Con varios almacenes hay que poder decir
   /// desde cuál se mide por defecto, o cada aplicación elegiría uno distinto.
-  principal Boolean      @default(false)
-  activo    Boolean      @default(true)
+  principal Boolean @default(false)
+  activo    Boolean @default(true)
 
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([orgId, codigo])
   @@index([orgId])
   @@index([orgId, principal])
+}
+
+/// UN APARATO FÍSICO (teléfono, PC) — el registro central de dispositivos. El contrato con las aplicaciones está en `docs/dispositivos.md`.
+/// Jose, 29/10/2026: un mismo aparato puede estar en Reparto Y en el CRM; es UNO solo, no una ficha por aplicación. Aquí vive lo
+/// que es del aparato (identidad, modelo, nombre); lo que es de cada aplicación (versión, sesión, estado, bloqueo) cuelga en `DispositivoApp`.
+/// La identidad es el UUID v7 estable de la instalación (`X-Aparato-Id`), que las apps de un mismo aparato deben compartir.
+model Dispositivo {
+  id         String   @id @default(cuid())
+  aparatoId  String   @unique
+  /// `Android`, `Windows`, `iOS`, `macOS`, `Linux`: lo que dice el User-Agent entre paréntesis.
+  plataforma String?
+  /// Cómo lo llama el aparato (`X-Aparato-Nombre`) y cómo lo llama un administrador (`nombre`, manda sobre `equipo`).
+  equipo     String?
+  nombre     String?
+  ipUltima   String?
+  userAgent  String?
+  primeraVez DateTime @default(now())
+  vistoAt    DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  /// En qué aplicaciones está este aparato.
+  apps DispositivoApp[]
+
+  @@map("dispositivo")
+}
+
+/// EL APARATO DENTRO DE UNA APLICACIÓN (`delivery-apk`, `crm-apk`…: el `azp` del token): versión, sesión, estado de trabajo y bloqueo.
+/// Bloquear es POR APLICACIÓN: el CRM corta su APK sin dejar sin entrar a Reparto en el mismo teléfono.
+model DispositivoApp {
+  id             String      @id @default(cuid())
+  dispositivoId  String
+  dispositivo    Dispositivo @relation(fields: [dispositivoId], references: [id], onDelete: Cascade)
+  clientId       String
+  /// La ÚLTIMA cuenta que entró en esta aplicación; TODAS quedan en `DispositivoPersona`.
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Código de la sucursal del token (`STG`…), tal como la firmó Accesos.
+  sucursal       String?
+  /// La versión ACTUAL (`1.0.47` o `1.0.47+48`): se pisa en cada renovación.
+  version        String?
+  primeraVez     DateTime    @default(now())
+  vistoAt        DateTime    @default(now())
+  /// Lo que la aplicación informó de sí misma (`POST /api/dispositivos/estado`). Todo opcional.
+  ultimaDescarga DateTime?
+  ultimaSubida   DateTime?
+  pendientes     Int?
+  rechazados     Int?
+  ultimoError    String?
+  estadoAt       DateTime?
+  /// La cadena de refresh de esta aplicación en el aparato, para poder cerrarla SIN tocar a las demás.
+  familyId       String?
+  /// Un administrador lo bloqueó en esta aplicación: ese `aparatoId` no vuelve a renovar en ella hasta que se desbloquee.
+  bloqueadoAt    DateTime?
+  bloqueadoPor   String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  /// TODAS las cuentas que han entrado en este aparato en esta aplicación (un mismo PC lo usan varias personas): `userId` es solo la ÚLTIMA.
+  personas DispositivoPersona[]
+
+  @@unique([dispositivoId, clientId])
+  @@index([clientId, updatedAt, id])
+  @@index([userId])
+  @@map("dispositivo_app")
+}
+
+/// QUÉ CUENTA ENTRÓ EN QUÉ APARATO Y APLICACIÓN (Jose, 29/10/2026: «puede usar varias cuentas pero yo debo saber cada cuenta que entró,
+/// aunque sea una misma computadora»). Una fila por (aparato-en-aplicación, persona): primera vez, última y versión. Se actualiza en cada renovación.
+model DispositivoPersona {
+  id               String         @id @default(cuid())
+  dispositivoAppId String
+  dispositivoApp   DispositivoApp @relation(fields: [dispositivoAppId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sucursal         String?
+  version          String?
+  primeraVez       DateTime       @default(now())
+  vistoAt          DateTime       @default(now())
+
+  @@unique([dispositivoAppId, userId])
+  @@index([userId])
+  @@map("dispositivo_persona")
 }

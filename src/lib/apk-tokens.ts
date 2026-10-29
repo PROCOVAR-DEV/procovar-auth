@@ -176,7 +176,7 @@ export const SEGUNDOS_REFRESH = 30 * 24 * 60 * 60;
 export const SEGUNDOS_DE_GRACIA = 120;
 
 /** La variable de entorno con el secreto de firma. La pone Dokploy. */
-const SECRETO_ACCESO = 'JWT_SECRET';
+export const SECRETO_ACCESO = 'JWT_SECRET';
 /** Etiqueta del token, para que un token de otra cosa no cuele como acceso. */
 export const PROPOSITO_ACCESO = 'apk:access';
 

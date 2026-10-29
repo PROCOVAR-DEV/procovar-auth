@@ -57,6 +57,7 @@ import { logger } from '@/lib/logger';
 import { CLIENTE_POR_DEFECTO, desdeDondePide, renovar } from '@/lib/apk-tokens';
 import { ComprobacionNoDisponible, CUERPO_NO_DISPONIBLE, CUERPO_SIN_PERMISO } from '@/lib/puerta-de-entrada';
 import { conCors, preflight } from '@/lib/cors-apk';
+import { aparatoBloqueadoPorRefresh, registrarDelPar } from '@/lib/dispositivos';
 
 const BodySchema = z
     .object({
@@ -100,11 +101,17 @@ async function manejar(req: NextRequest) {
     }
 
     try {
+        // UN APARATO BLOQUEADO POR UN ADMINISTRADOR (`docs/dispositivos.md`): el 401 de siempre, ANTES de gastar el
+        // refresh. Falla abierto: si no se puede mirar, no se bloquea a nadie por una caída.
+        if (await aparatoBloqueadoPorRefresh((parsed.data.refresh_token ?? parsed.data.refresh)!, req.headers, CLIENTE_POR_DEFECTO)) return NextResponse.json({ error: 'invalid_refresh' }, { status: 401 });
+
         const salida = await renovar((parsed.data.refresh_token ?? parsed.data.refresh)!, aparato);
         if (!salida.ok) {
             if (salida.motivo === 'sin_permiso') return NextResponse.json(CUERPO_SIN_PERMISO, { status: 403 });
             return NextResponse.json({ error: 'invalid_refresh' }, { status: 401 });
         }
+        // El registro de dispositivos: identidad y versión ACTUALES del aparato. No puede romper la renovación.
+        await registrarDelPar(salida.par, req.headers, aparato);
         return NextResponse.json(salida.par);
     } catch (e) {
         if (e instanceof ComprobacionNoDisponible) {

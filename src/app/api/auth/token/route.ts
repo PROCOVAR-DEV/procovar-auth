@@ -70,6 +70,7 @@ import {
     cuerpoSinPermiso,
 } from '@/lib/puerta-de-entrada';
 import { conCors, preflight } from '@/lib/cors-apk';
+import { aparatoBloqueado, registrarDelPar } from '@/lib/dispositivos';
 import {
     CLIENTE_POR_DEFECTO,
     CLIENTES_APK,
@@ -236,6 +237,12 @@ async function manejar(req: NextRequest) {
             return NextResponse.json(cuerpoSinPermiso(cliente), { status: 403 });
         }
 
+        // UN APARATO BLOQUEADO POR UN ADMINISTRADOR no vuelve a entrar con ese `X-Aparato-Id` (`docs/dispositivos.md`).
+        if (await aparatoBloqueado(req.headers, cliente)) {
+            await descartarSesion(sesion.id);
+            return NextResponse.json({ error: 'dispositivo_bloqueado' }, { status: 403 });
+        }
+
         const par = await emitirPar({
             userId: sesion.userId,
             sessionId: sesion.id,
@@ -259,6 +266,9 @@ async function manejar(req: NextRequest) {
             userAgent: aparato.userAgent,
             meta: { identificador, sessionId: sesion.id },
         });
+
+        // El registro de dispositivos: identidad y versión del aparato. No puede romper el acceso.
+        await registrarDelPar(par, req.headers, aparato);
 
         return NextResponse.json(par);
     } catch (e) {
